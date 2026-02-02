@@ -42,14 +42,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        // inside RootLayout return:
-<body>
+        {children}
+      </body>
+      <body>
   <SWRegister />
   {children}
 </body>
-
-        {children}
-      </body>
     </html>
   );
 }
