@@ -6,6 +6,7 @@ import {
   GroceryItem,
   addGroceryItem,
   clearAll,
+  clearBought,
   deleteItem,
   loadGroceryList,
   toggleBought,
@@ -80,6 +81,12 @@ export default function GroceryPage() {
     clearAll();
     setItems([]);
   }
+function onClearBought() {
+  setItems((prev) => clearBought(prev));
+}
+function byName(a: GroceryItem, b: GroceryItem) {
+  return a.name.localeCompare(b.name);
+}
 
   return (
     <main className="min-h-screen p-6 bg-gray-900 text-white">
@@ -155,6 +162,13 @@ export default function GroceryPage() {
         >
           Clear All
         </button>
+        <button
+  onClick={onClearBought}
+  disabled={bought.length === 0}
+  className="mt-3 w-full bg-gray-900 hover:bg-gray-950 py-2 rounded font-semibold border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+>
+  Clear Purchased
+</button>
 
         <div className="mt-6 space-y-5">
           {Object.entries(groupedUnbought).map(([cat, list]) => {
@@ -165,7 +179,8 @@ export default function GroceryPage() {
               <section key={cat}>
                 <h2 className="text-lg font-semibold mb-2">{label}</h2>
                 <ul className="space-y-2">
-                  {list.map((it) => (
+                  {[...list].sort(byName).map((it) => (
+
                     <li
                       key={it.id}
                       className="flex items-center justify-between rounded border border-gray-700 bg-gray-900 p-3"
@@ -202,7 +217,8 @@ export default function GroceryPage() {
             <section>
               <h2 className="text-lg font-semibold mb-2">Bought</h2>
               <ul className="space-y-2">
-                {bought.map((it) => (
+                {[...bought].sort(byName).map((it) => (
+
                   <li
                     key={it.id}
                     className="flex items-center justify-between rounded border border-gray-700 bg-gray-900/60 p-3"

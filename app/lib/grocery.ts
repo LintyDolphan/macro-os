@@ -77,3 +77,9 @@ export function deleteItem(items: GroceryItem[], id: string) {
 export function clearAll() {
   localStorage.removeItem(KEY);
 }
+export function clearBought(items: GroceryItem[]) {
+  const next = items.filter((it) => !it.bought);
+  saveGroceryList(next);
+  return next;
+}
+
