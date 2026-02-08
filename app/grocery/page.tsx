@@ -22,6 +22,9 @@ const CATEGORY_LABELS: Record<GroceryCategory, string> = {
   snacks: "Snacks",
   other: "Other",
 };
+function byName(a: GroceryItem, b: GroceryItem) {
+  return a.name.localeCompare(b.name);
+}
 
 export default function GroceryPage() {
   const [items, setItems] = useState<GroceryItem[]>([]);
@@ -163,12 +166,13 @@ function byName(a: GroceryItem, b: GroceryItem) {
           Clear All
         </button>
         <button
-  onClick={onClearBought}
-  disabled={bought.length === 0}
-  className="mt-3 w-full bg-gray-900 hover:bg-gray-950 py-2 rounded font-semibold border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
->
-  Clear Purchased
-</button>
+          onClick={onClearBought}
+          disabled={bought.length === 0}
+          className="mt-3 w-full bg-gray-900 hover:bg-gray-950 py-2 rounded font-semibold border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Clear Purchased
+        </button>
+
 
         <div className="mt-6 space-y-5">
           {Object.entries(groupedUnbought).map(([cat, list]) => {
