@@ -83,3 +83,60 @@ export function clearBought(items: GroceryItem[]) {
   return next;
 }
 
+export function exportShareCode(items: GroceryItem[]) {
+  // include a version so you can evolve this later
+  const payload = { v: 1, items };
+  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+}
+
+export function importShareCode(code: string): GroceryItem[] {
+  const json = decodeURIComponent(escape(atob(code.trim())));
+  const payload = JSON.parse(json);
+
+  // supports either {v, items} or a raw array fallback
+  if (Array.isArray(payload)) return payload as GroceryItem[];
+  if (payload?.items && Array.isArray(payload.items)) return payload.items as GroceryItem[];
+
+  throw new Error("Invalid share code");
+}
+
+export function mergeGroceryLists(
+  current: GroceryItem[],
+  incoming: GroceryItem[]
+): GroceryItem[] {
+  // Merge by name+category (simple + effective). Keeps "bought" if either is bought.
+  const key = (i: GroceryItem) =>
+    `${i.category}::${i.name}`.toLowerCase().trim();
+
+  const map = new Map<string, GroceryItem>();
+
+  for (const it of current) map.set(key(it), it);
+
+  for (const inc of incoming) {
+    const k = key(inc);
+    const existing = map.get(k);
+
+    if (!existing) {
+      // ensure id exists (in case older payloads)
+      map.set(k, {
+        ...inc,
+        id: inc.id ?? crypto.randomUUID(),
+      });
+      continue;
+    }
+
+    map.set(k, {
+      ...existing,
+      // keep bought if either list has it bought
+      bought: existing.bought || inc.bought,
+      boughtAt: existing.boughtAt ?? inc.boughtAt,
+      // keep qty if you ever add it later (safe)
+      qty: (existing as any).qty ?? (inc as any).qty,
+      notes: (existing as any).notes ?? (inc as any).notes,
+    } as GroceryItem);
+  }
+
+  const next = Array.from(map.values());
+  saveGroceryList(next);
+  return next;
+}

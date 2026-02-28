@@ -10,6 +10,9 @@ import {
   deleteItem,
   loadGroceryList,
   toggleBought,
+  exportShareCode,
+  importShareCode,
+  mergeGroceryLists,
 } from "../lib/grocery";
 import Link from "next/link";
 
@@ -31,6 +34,9 @@ export default function GroceryPage() {
   const [name, setName] = useState("");
   const [qty, setQty] = useState("");
   const [category, setCategory] = useState<GroceryCategory>("produce");
+  const [shareCode, setShareCode] = useState("");
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
+  const [shareErr, setShareErr] = useState<string | null>(null);
 
   useEffect(() => {
     setItems(loadGroceryList());
@@ -87,6 +93,31 @@ export default function GroceryPage() {
 function onClearBought() {
   setItems((prev) => clearBought(prev));
 }
+async function onCopyShare() {
+  try {
+    const code = exportShareCode(items);
+    await navigator.clipboard.writeText(code);
+    setShareMsg("Share code copied ✅");
+    setShareErr(null);
+    window.setTimeout(() => setShareMsg(null), 1500);
+  } catch {
+    setShareErr("Couldn’t copy. Try manually selecting the code.");
+  }
+}
+
+function onImportShare() {
+  try {
+    const incoming = importShareCode(shareCode);
+    setItems((prev) => mergeGroceryLists(prev, incoming));
+    setShareMsg("Imported and merged ✅");
+    setShareErr(null);
+    setShareCode("");
+    window.setTimeout(() => setShareMsg(null), 1500);
+  } catch {
+    setShareErr("Invalid share code.");
+    setShareMsg(null);
+  }
+}
 function byName(a: GroceryItem, b: GroceryItem) {
   return a.name.localeCompare(b.name);
 }
@@ -100,7 +131,50 @@ function byName(a: GroceryItem, b: GroceryItem) {
             ← Back
           </Link>
         </div>
+<div className="bg-gray-800 p-4 rounded-lg shadow-lg mb-4 border border-gray-700">
+  <h2 className="text-lg font-semibold">Share List</h2>
+  <p className="text-sm text-gray-300 mt-1">
+    Copy a share code to send to someone else. Paste a code to merge their list into yours.
+  </p>
 
+  {shareMsg && (
+    <div className="mt-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+      {shareMsg}
+    </div>
+  )}
+  {shareErr && (
+    <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+      {shareErr}
+    </div>
+  )}
+
+  <div className="mt-3 flex gap-2">
+    <button
+      type="button"
+      onClick={onCopyShare}
+      className="flex-1 bg-blue-600 hover:bg-blue-700 py-2 rounded font-semibold"
+    >
+      Copy Share Code
+    </button>
+
+    <button
+      type="button"
+      onClick={onImportShare}
+      disabled={!shareCode.trim()}
+      className="flex-1 bg-emerald-600 hover:bg-emerald-700 py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      Import & Merge
+    </button>
+  </div>
+
+  <textarea
+    value={shareCode}
+    onChange={(e) => setShareCode(e.target.value)}
+    placeholder="Paste share code here…"
+    className="mt-2 w-full p-3 rounded bg-gray-900 border border-gray-700 text-sm"
+    rows={3}
+  />
+</div>
         <form onSubmit={onAdd} className="bg-gray-800 p-4 rounded-lg shadow-lg space-y-3">
           <div>
             <label className="block text-sm text-gray-300 mb-1">Item</label>
