@@ -8,6 +8,8 @@ import { addIngredientsToGrocery, scaleQty } from "../lib/mealplan";
 import type { Ingredient, Recipe } from "../lib/recipes";
 import { TEMPLATE_RECIPES, addRecipe, deleteRecipe, loadRecipes } from "../lib/recipes";
 import { saveGroceryList } from "../lib/grocery";
+import { addLogEntry, loadLog, sumMacros, todayISO } from "../lib/macroLog";
+import type { MacroLogEntry } from "../lib/macroLog";
 
 type SelectedMeal = {
   recipe: Recipe;
@@ -35,7 +37,11 @@ export default function MealsPage() {
   const [grocery, setGrocery] = useState<GroceryItem[]>([]);
   const [selected, setSelected] = useState<SelectedMeal[]>([]);
   const [addedMsg, setAddedMsg] = useState<string | null>(null);
-
+  const [defaultServings, setDefaultServings] = useState(2);
+  const [totalCalories, setTotalCalories] = useState("");
+  const [totalProtein, setTotalProtein] = useState("");
+  const [totalCarbs, setTotalCarbs] = useState("");
+  const [totalFat, setTotalFat] = useState("");
 
 
   // Create recipe form state
@@ -46,7 +52,26 @@ export default function MealsPage() {
     setMyRecipes(loadRecipes());
     setGrocery(loadGroceryList());
   }, []);
+const selectedMacros = useMemo(() => {
+  return selected.reduce((acc, s) => addMacros(acc, macrosForSelectedMeal(s.recipe, s.servings)), {
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+  });
+}, [selected]);
+const [todayEntries, setTodayEntries] = useState<MacroLogEntry[]>([]);
+useEffect(() => {
+  setTodayEntries(loadLog(todayISO()));
+}, []);
+function logSelectedToToday() {
+  if (selected.length === 0) return;
 
+  addLogEntry("Meal plan", selectedMacros);
+  setTodayEntries(loadLog(todayISO()));
+  setSelected([]);
+}
+const todayTotals = useMemo(() => sumMacros(todayEntries), [todayEntries]);
   const allPickable = useMemo(() => {
     // show templates + my recipes
     return [...TEMPLATE_RECIPES, ...myRecipes];
@@ -75,7 +100,26 @@ function bumpServings(recipeId: string, delta: number) {
     })
   );
 }
+function macrosForSelectedMeal(recipe: Recipe, servings: number) {
+  const base = recipe.defaultServings || 1;
+  const factor = servings / base;
 
+  return {
+    calories: Math.round((recipe.totalMacros.calories || 0) * factor),
+    protein: Math.round((recipe.totalMacros.protein || 0) * factor),
+    carbs: Math.round((recipe.totalMacros.carbs || 0) * factor),
+    fat: Math.round((recipe.totalMacros.fat || 0) * factor),
+  };
+}
+
+function addMacros(a: any, b: any) {
+  return {
+    calories: a.calories + b.calories,
+    protein: a.protein + b.protein,
+    carbs: a.carbs + b.carbs,
+    fat: a.fat + b.fat,
+  };
+}
 
 function addSelectedToGrocery() {
   const scaledIngredients = selected.flatMap(({ recipe, servings }) =>
@@ -126,12 +170,24 @@ function addSelectedToGrocery() {
         category: ing.category,
       }))
       .filter((ing) => ing.name.length > 0);
+const servingsNum = Number(defaultServings) || 1;
 
+const macros = {
+  calories: Number(totalCalories) || 0,
+  protein: Number(totalProtein) || 0,
+  carbs: Number(totalCarbs) || 0,
+  fat: Number(totalFat) || 0,
+};
     if (!cleanedName || cleanedIngredients.length === 0) return;
 
     setMyRecipes((prev) =>
-      addRecipe(prev, { name: cleanedName, ingredients: cleanedIngredients })
-    );
+  addRecipe(prev, {
+    name: cleanedName,
+    ingredients: cleanedIngredients,
+    defaultServings: servingsNum,
+    totalMacros: macros,
+  })
+);
 
     setRecipeName("");
     setIngredients([emptyIngredient()]);
@@ -259,7 +315,36 @@ function addSelectedToGrocery() {
             Go to Grocery List
           </Link>
         </div>
+<div className="mt-3 rounded border border-gray-700 bg-gray-900 p-3 text-sm">
+  <div className="font-semibold mb-1">Selected macros</div>
+  <div className="grid grid-cols-2 gap-2 text-gray-200">
+    <div>Calories: {selectedMacros.calories}</div>
+    <div>Protein: {selectedMacros.protein}g</div>
+    <div>Carbs: {selectedMacros.carbs}g</div>
+    <div>Fat: {selectedMacros.fat}g</div>
+  </div>
+<div className="bg-gray-800 p-4 rounded-lg shadow-lg mb-4">
+  <div className="flex items-center justify-between">
+    <h2 className="text-lg font-semibold">Today so far</h2>
+    <span className="text-sm text-gray-300">{todayISO()}</span>
+  </div>
 
+  <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-200">
+    <div>Calories: {todayTotals.calories}</div>
+    <div>Protein: {todayTotals.protein}g</div>
+    <div>Carbs: {todayTotals.carbs}g</div>
+    <div>Fat: {todayTotals.fat}g</div>
+  </div>
+</div>
+  <button
+    type="button"
+    onClick={logSelectedToToday}
+    disabled={selected.length === 0}
+    className="mt-3 w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+  >
+    Log Selected to Today
+  </button>
+</div>
         {/* Tab content */}
         {tab === "pick" ? (
           <div className="space-y-3">
@@ -318,7 +403,58 @@ function addSelectedToGrocery() {
                 className="w-full p-3 rounded bg-gray-900 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
               />
             </div>
+<div className="grid grid-cols-2 gap-3 mb-3">
+  <div className="col-span-2">
+    <label className="block text-sm text-gray-300 mb-1">Default servings</label>
+    <input
+      type="number"
+      min={1}
+      value={defaultServings}
+      onChange={(e) => setDefaultServings(Number(e.target.value))}
+      className="w-full p-3 rounded bg-gray-900 border border-gray-700"
+    />
+  </div>
 
+  <div>
+    <label className="block text-sm text-gray-300 mb-1">Total calories</label>
+    <input
+      type="number"
+      value={totalCalories}
+      onChange={(e) => setTotalCalories(e.target.value)}
+      className="w-full p-3 rounded bg-gray-900 border border-gray-700"
+    />
+  </div>
+
+  <div>
+    <label className="block text-sm text-gray-300 mb-1">Total protein (g)</label>
+    <input
+      type="number"
+      value={totalProtein}
+      onChange={(e) => setTotalProtein(e.target.value)}
+      className="w-full p-3 rounded bg-gray-900 border border-gray-700"
+    />
+  </div>
+
+  <div>
+    <label className="block text-sm text-gray-300 mb-1">Total carbs (g)</label>
+    <input
+      type="number"
+      value={totalCarbs}
+      onChange={(e) => setTotalCarbs(e.target.value)}
+      className="w-full p-3 rounded bg-gray-900 border border-gray-700"
+    />
+  </div>
+
+  <div>
+    <label className="block text-sm text-gray-300 mb-1">Total fat (g)</label>
+    <input
+      type="number"
+      value={totalFat}
+      onChange={(e) => setTotalFat(e.target.value)}
+      className="w-full p-3 rounded bg-gray-900 border border-gray-700"
+    />
+  </div>
+</div>
             <div className="space-y-3">
               {ingredients.map((ing, idx) => (
                 <div key={idx} className="rounded border border-gray-700 bg-gray-900 p-3">
