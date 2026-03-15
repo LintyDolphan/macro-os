@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../components/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -72,9 +73,7 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-6 bg-gray-900 text-white">
-      <h1 className="text-3xl font-bold mb-4">Macro OS</h1>
-
+<AppShell title="Dashboard" subtitle="Your daily nutrition overview">
       <div className="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-md">
         <h2 className="text-xl font-semibold mb-2">Current Targets</h2>
 
@@ -194,6 +193,6 @@ export default function Dashboard() {
           )}
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

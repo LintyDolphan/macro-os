@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../components/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import {
   GroceryCategory,
@@ -123,13 +124,10 @@ function byName(a: GroceryItem, b: GroceryItem) {
 }
 
   return (
-    <main className="min-h-screen p-6 bg-gray-900 text-white">
+    <AppShell title="Grocery" subtitle="Manage your shopping list">
       <div className="max-w-md mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Grocery List</h1>
-          <Link href="/" className="text-sm text-gray-300 hover:text-white">
-            ← Back
-          </Link>
         </div>
 <div className="bg-gray-800 p-4 rounded-lg shadow-lg mb-4 border border-gray-700">
   <h2 className="text-lg font-semibold">Share List</h2>
@@ -326,6 +324,6 @@ function byName(a: GroceryItem, b: GroceryItem) {
           )}
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

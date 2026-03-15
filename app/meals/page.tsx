@@ -1,5 +1,6 @@
 "use client";
 
+import AppShell from "../components/AppShell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { GroceryCategory, GroceryItem } from "../lib/grocery";
@@ -200,13 +201,10 @@ const macros = {
 }
 
   return (
-    <main className="min-h-screen p-6 bg-gray-900 text-white">
+    <AppShell title="Meals" subtitle="Plan meals and log macros">
       <div className="max-w-md mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Meals</h1>
-          <Link href="/" className="text-sm text-gray-300 hover:text-white">
-            ← Back
-          </Link>
         </div>
 
         {/* Tabs */}
@@ -527,6 +525,6 @@ const macros = {
           </form>
         )}
       </div>
-    </main>
+    </AppShell>
   );
 }
