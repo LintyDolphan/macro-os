@@ -1,17 +1,43 @@
-type TopBarProps = {
-  title: string;
-  subtitle?: string;
-};
+"use client";
 
-export default function TopBar({ title, subtitle }: TopBarProps) {
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const navItems = [
+  { href: "/", label: "Dashboard" },
+  { href: "/meals", label: "Meals" },
+  { href: "/grocery", label: "Grocery" },
+  { href: "/progress", label: "Progress" },
+  { href: "/settings", label: "Settings" },
+];
+
+export default function BottomNav() {
+  const pathname = usePathname();
+
   return (
-    <header className="sticky top-0 z-20 border-b border-gray-800 bg-gray-900/95 backdrop-blur">
-      <div className="mx-auto w-full max-w-md px-4 py-4">
-        <h1 className="text-xl font-bold text-white">{title}</h1>
-        {subtitle ? (
-          <p className="mt-1 text-sm text-gray-400">{subtitle}</p>
-        ) : null}
+    <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-gray-800 bg-gray-900/95 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-md justify-between px-2 py-2">
+        {navItems.map((item) => {
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex min-w-0 flex-1 flex-col items-center rounded-lg px-2 py-2 text-xs font-medium transition ${
+                isActive
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-400 hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              <span className="truncate">{item.label}</span>
+            </Link>
+          );
+        })}
       </div>
-    </header>
+    </nav>
   );
 }

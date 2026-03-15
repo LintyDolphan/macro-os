@@ -1,6 +1,6 @@
 "use client";
 
-import AppShell from "../components/AppShell";
+import AppShell from "./components/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
