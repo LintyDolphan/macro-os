@@ -1,5 +1,6 @@
 "use client";
 
+import { loadLog, sumMacros, todayISO } from "./lib/macroLog";
 import AppShell from "./components/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -26,14 +27,54 @@ export default function Dashboard() {
   const [current, setCurrentState] = useState<MacroEntry | null>(null);
   const [history, setHistory] = useState<MacroEntry[]>([]);
   const [copied, setCopied] = useState(false);
-
+const [todayTotals, setTodayTotals] = useState({
+  calories: 0,
+  protein: 0,
+  carbs: 0,
+  fat: 0,
+});
   useEffect(() => {
     const c = loadCurrent();
     const h = loadHistory();
+    const todayEntries = loadLog(todayISO());
+setTodayTotals(sumMacros(todayEntries));
     setCurrentState(c);
     setHistory(h);
   }, []);
 
+function ProgressRow({
+  label,
+  consumed,
+  target,
+  unit = "",
+}: {
+  label: string;
+  consumed: number;
+  target: number;
+  unit?: string;
+}) {
+  const safeTarget = Math.max(target, 1);
+  const percent = Math.min((consumed / safeTarget) * 100, 100);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-gray-300">{label}</span>
+        <span className="text-gray-400">
+          {consumed} / {target}
+          {unit}
+        </span>
+      </div>
+
+      <div className="h-2 w-full rounded-full bg-gray-700">
+        <div
+          className="h-2 rounded-full bg-blue-500 transition-all"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
   function copyToClipboard() {
     if (!current) return;
 
@@ -71,9 +112,82 @@ export default function Dashboard() {
     setHistory([]);
     setCurrentState(null);
   }
-
+const remaining = current
+  ? {
+      calories: current.calories - todayTotals.calories,
+      protein: current.protein - todayTotals.protein,
+      carbs: current.carbs - todayTotals.carbs,
+      fat: current.fat - todayTotals.fat,
+    }
+  : null;
   return (
 <AppShell title="Dashboard" subtitle="Your daily nutrition overview">
+  <div className="rounded-lg bg-gray-800 p-4 shadow-lg mb-4">
+  <div className="flex items-center justify-between mb-3">
+    <h2 className="text-lg font-semibold">Today’s Macro Progress</h2>
+    <span className="text-sm text-gray-400">{todayISO()}</span>
+  </div>
+
+  {current ? (
+    <div className="space-y-4">
+      <ProgressRow
+        label="Calories"
+        consumed={todayTotals.calories}
+        target={current.calories}
+      />
+      <ProgressRow
+        label="Protein"
+        consumed={todayTotals.protein}
+        target={current.protein}
+        unit="g"
+      />
+      <ProgressRow
+        label="Carbs"
+        consumed={todayTotals.carbs}
+        target={current.carbs}
+        unit="g"
+      />
+      <ProgressRow
+        label="Fat"
+        consumed={todayTotals.fat}
+        target={current.fat}
+        unit="g"
+      />
+    </div>
+  ) : (
+    <p className="text-sm text-gray-400">
+      Set your macro targets to start tracking daily progress.
+    </p>
+  )}
+</div>
+<div className="rounded-lg bg-gray-800 p-4 shadow-lg mb-4">
+  <h2 className="text-lg font-semibold mb-3">Remaining Today</h2>
+
+  {remaining ? (
+    <div className="grid grid-cols-2 gap-3 text-center">
+      <div className="rounded bg-gray-900 p-3">
+        <p className="text-sm text-gray-400">Calories</p>
+        <p className="text-xl font-bold">{remaining.calories}</p>
+      </div>
+      <div className="rounded bg-gray-900 p-3">
+        <p className="text-sm text-gray-400">Protein</p>
+        <p className="text-xl font-bold">{remaining.protein}g</p>
+      </div>
+      <div className="rounded bg-gray-900 p-3">
+        <p className="text-sm text-gray-400">Carbs</p>
+        <p className="text-xl font-bold">{remaining.carbs}g</p>
+      </div>
+      <div className="rounded bg-gray-900 p-3">
+        <p className="text-sm text-gray-400">Fat</p>
+        <p className="text-xl font-bold">{remaining.fat}g</p>
+      </div>
+    </div>
+  ) : (
+    <p className="text-sm text-gray-400">
+      No targets set yet.
+    </p>
+  )}
+</div>
       <div className="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-md">
         <h2 className="text-xl font-semibold mb-2">Current Targets</h2>
 
