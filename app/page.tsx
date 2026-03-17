@@ -1,9 +1,9 @@
 "use client";
 
-import { loadLog, sumMacros, todayISO } from "./lib/macroLog";
-import AppShell from "./components/AppShell";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import AppShell from "./components/AppShell";
+import { loadLog, sumMacros, todayISO } from "./lib/macroLog";
 import {
   MacroEntry,
   loadCurrent,
@@ -23,24 +23,20 @@ function niceLabel(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export default function Dashboard() {
-  const [current, setCurrentState] = useState<MacroEntry | null>(null);
-  const [history, setHistory] = useState<MacroEntry[]>([]);
-  const [copied, setCopied] = useState(false);
-const [todayTotals, setTodayTotals] = useState({
-  calories: 0,
-  protein: 0,
-  carbs: 0,
-  fat: 0,
-});
-  useEffect(() => {
-    const c = loadCurrent();
-    const h = loadHistory();
-    const todayEntries = loadLog(todayISO());
-setTodayTotals(sumMacros(todayEntries));
-    setCurrentState(c);
-    setHistory(h);
-  }, []);
+function DashboardCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl bg-gray-800 p-4 shadow-lg">
+      <h2 className="mb-3 text-lg font-semibold">{title}</h2>
+      {children}
+    </section>
+  );
+}
 
 function ProgressRow({
   label,
@@ -75,6 +71,28 @@ function ProgressRow({
     </div>
   );
 }
+
+export default function Dashboard() {
+  const [current, setCurrentState] = useState<MacroEntry | null>(null);
+  const [history, setHistory] = useState<MacroEntry[]>([]);
+  const [copied, setCopied] = useState(false);
+  const [todayTotals, setTodayTotals] = useState({
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+  });
+
+  useEffect(() => {
+    const c = loadCurrent();
+    const h = loadHistory();
+    const todayEntries = loadLog(todayISO());
+
+    setCurrentState(c);
+    setHistory(h);
+    setTodayTotals(sumMacros(todayEntries));
+  }, []);
+
   function copyToClipboard() {
     if (!current) return;
 
@@ -98,11 +116,13 @@ function ProgressRow({
     const next = deleteFromHistory(id);
     setHistory(next);
 
-    // If they deleted the current entry, switch current to next best
     if (current?.id === id) {
       const newCurrent = next[0] ?? null;
-      if (newCurrent) setCurrent(newCurrent);
-      else localStorage.removeItem("macros");
+      if (newCurrent) {
+        setCurrent(newCurrent);
+      } else {
+        localStorage.removeItem("macros");
+      }
       setCurrentState(newCurrent);
     }
   }
@@ -112,155 +132,177 @@ function ProgressRow({
     setHistory([]);
     setCurrentState(null);
   }
-const remaining = current
-  ? {
-      calories: current.calories - todayTotals.calories,
-      protein: current.protein - todayTotals.protein,
-      carbs: current.carbs - todayTotals.carbs,
-      fat: current.fat - todayTotals.fat,
-    }
-  : null;
+
+  const remaining = current
+    ? {
+        calories: current.calories - todayTotals.calories,
+        protein: current.protein - todayTotals.protein,
+        carbs: current.carbs - todayTotals.carbs,
+        fat: current.fat - todayTotals.fat,
+      }
+    : null;
+
   return (
-<AppShell title="Dashboard" subtitle="Your daily nutrition overview">
-  <div className="rounded-lg bg-gray-800 p-4 shadow-lg mb-4">
-  <div className="flex items-center justify-between mb-3">
-    <h2 className="text-lg font-semibold">Today’s Macro Progress</h2>
-    <span className="text-sm text-gray-400">{todayISO()}</span>
-  </div>
-
-  {current ? (
-    <div className="space-y-4">
-      <ProgressRow
-        label="Calories"
-        consumed={todayTotals.calories}
-        target={current.calories}
-      />
-      <ProgressRow
-        label="Protein"
-        consumed={todayTotals.protein}
-        target={current.protein}
-        unit="g"
-      />
-      <ProgressRow
-        label="Carbs"
-        consumed={todayTotals.carbs}
-        target={current.carbs}
-        unit="g"
-      />
-      <ProgressRow
-        label="Fat"
-        consumed={todayTotals.fat}
-        target={current.fat}
-        unit="g"
-      />
-    </div>
-  ) : (
-    <p className="text-sm text-gray-400">
-      Set your macro targets to start tracking daily progress.
-    </p>
-  )}
-</div>
-<div className="rounded-lg bg-gray-800 p-4 shadow-lg mb-4">
-  <h2 className="text-lg font-semibold mb-3">Remaining Today</h2>
-
-  {remaining ? (
-    <div className="grid grid-cols-2 gap-3 text-center">
-      <div className="rounded bg-gray-900 p-3">
-        <p className="text-sm text-gray-400">Calories</p>
-        <p className="text-xl font-bold">{remaining.calories}</p>
-      </div>
-      <div className="rounded bg-gray-900 p-3">
-        <p className="text-sm text-gray-400">Protein</p>
-        <p className="text-xl font-bold">{remaining.protein}g</p>
-      </div>
-      <div className="rounded bg-gray-900 p-3">
-        <p className="text-sm text-gray-400">Carbs</p>
-        <p className="text-xl font-bold">{remaining.carbs}g</p>
-      </div>
-      <div className="rounded bg-gray-900 p-3">
-        <p className="text-sm text-gray-400">Fat</p>
-        <p className="text-xl font-bold">{remaining.fat}g</p>
-      </div>
-    </div>
-  ) : (
-    <p className="text-sm text-gray-400">
-      No targets set yet.
-    </p>
-  )}
-</div>
-      <div className="bg-gray-800 p-6 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-xl font-semibold mb-2">Current Targets</h2>
-
-        {current?.inputs && (
-          <p className="text-sm text-gray-300 mb-2">
-            {niceLabel(current.inputs.sex)} • {current.inputs.age} •{" "}
-            {niceLabel(current.inputs.activity)} • {current.inputs.weightLbs} lb •{" "}
-            {current.inputs.heightIn} in • {niceLabel(current.inputs.goal)}
-          </p>
-        )}
-
-        {current?.updatedAt && (
-          <p className="text-sm text-gray-400 mb-4">
-            Last updated: {formatUpdatedAt(current.updatedAt)}
-          </p>
-        )}
-
-        <div className="grid grid-cols-2 gap-4 text-center">
-          <div>
-            <p className="text-gray-400">Calories</p>
-            <p className="text-2xl font-bold">{current?.calories ?? "—"}</p>
+    <AppShell title="Dashboard" subtitle="Your daily nutrition overview">
+      <div className="space-y-4">
+        <DashboardCard title="Today’s Macro Progress">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-sm text-gray-400">{todayISO()}</span>
           </div>
-          <div>
-            <p className="text-gray-400">Protein (g)</p>
-            <p className="text-2xl font-bold">{current?.protein ?? "—"}</p>
+
+          {current ? (
+            <div className="space-y-4">
+              <ProgressRow
+                label="Calories"
+                consumed={todayTotals.calories}
+                target={current.calories}
+              />
+              <ProgressRow
+                label="Protein"
+                consumed={todayTotals.protein}
+                target={current.protein}
+                unit="g"
+              />
+              <ProgressRow
+                label="Carbs"
+                consumed={todayTotals.carbs}
+                target={current.carbs}
+                unit="g"
+              />
+              <ProgressRow
+                label="Fat"
+                consumed={todayTotals.fat}
+                target={current.fat}
+                unit="g"
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">
+              Set your macro targets to start tracking daily progress.
+            </p>
+          )}
+        </DashboardCard>
+
+        <DashboardCard title="Remaining Today">
+          {remaining ? (
+            <div className="grid grid-cols-2 gap-3 text-center">
+              <div className="rounded-xl bg-gray-900 p-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">
+                  Calories
+                </p>
+                <p className="text-xl font-bold">{remaining.calories}</p>
+              </div>
+              <div className="rounded-xl bg-gray-900 p-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">
+                  Protein
+                </p>
+                <p className="text-xl font-bold">{remaining.protein}g</p>
+              </div>
+              <div className="rounded-xl bg-gray-900 p-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">
+                  Carbs
+                </p>
+                <p className="text-xl font-bold">{remaining.carbs}g</p>
+              </div>
+              <div className="rounded-xl bg-gray-900 p-3">
+                <p className="text-xs uppercase tracking-wide text-gray-400">
+                  Fat
+                </p>
+                <p className="text-xl font-bold">{remaining.fat}g</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400">No targets set yet.</p>
+          )}
+        </DashboardCard>
+
+        <DashboardCard title="Current Targets">
+          {current?.inputs && (
+            <p className="mb-2 text-sm text-gray-300">
+              {niceLabel(current.inputs.sex)} • {current.inputs.age} •{" "}
+              {niceLabel(current.inputs.activity)} • {current.inputs.weightLbs} lb
+              • {current.inputs.heightIn} in •{" "}
+              {niceLabel(current.inputs.goal)}
+            </p>
+          )}
+
+          {current?.updatedAt && (
+            <p className="mb-4 text-sm text-gray-400">
+              Last updated: {formatUpdatedAt(current.updatedAt)}
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 gap-4 text-center">
+            <div>
+              <p className="text-gray-400">Calories</p>
+              <p className="text-2xl font-bold">{current?.calories ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Protein (g)</p>
+              <p className="text-2xl font-bold">{current?.protein ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Carbs (g)</p>
+              <p className="text-2xl font-bold">{current?.carbs ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Fat (g)</p>
+              <p className="text-2xl font-bold">{current?.fat ?? "—"}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-gray-400">Carbs (g)</p>
-            <p className="text-2xl font-bold">{current?.carbs ?? "—"}</p>
+        </DashboardCard>
+
+        <DashboardCard title="Quick Actions">
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              href="/calculator"
+              className="rounded-xl bg-blue-600 px-4 py-4 text-center font-semibold hover:bg-blue-700"
+            >
+              Set Macros
+            </Link>
+
+            <Link
+              href="/meals"
+              className="rounded-xl bg-purple-600 px-4 py-4 text-center font-semibold hover:bg-purple-700"
+            >
+              Meals
+            </Link>
+
+            <Link
+              href="/grocery"
+              className="rounded-xl bg-emerald-600 px-4 py-4 text-center font-semibold hover:bg-emerald-700"
+            >
+              Grocery
+            </Link>
+
+            <Link
+              href="/progress"
+              className="rounded-xl bg-gray-700 px-4 py-4 text-center font-semibold hover:bg-gray-600"
+            >
+              Progress
+            </Link>
           </div>
-          <div>
-            <p className="text-gray-400">Fat (g)</p>
-            <p className="text-2xl font-bold">{current?.fat ?? "—"}</p>
+
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <button
+              onClick={copyToClipboard}
+              disabled={!current}
+              className="rounded-xl bg-gray-700 px-4 py-3 font-semibold hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {copied ? "Copied ✅" : "Copy Targets"}
+            </button>
+
+            <button
+              onClick={wipeAll}
+              disabled={!current && history.length === 0}
+              className="rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 font-semibold hover:bg-gray-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Clear All
+            </button>
           </div>
-        </div>
+        </DashboardCard>
 
-        <Link
-          href="/calculator"
-          className="mt-6 w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-semibold text-center block"
-        >
-          Set Macros
-        </Link>
-
-        <button
-          onClick={copyToClipboard}
-          disabled={!current}
-          className="mt-3 w-full bg-gray-700 hover:bg-gray-600 py-2 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {copied ? "Copied ✅" : "Copy Targets"}
-        </button>
-
-        <button
-          onClick={wipeAll}
-          disabled={!current && history.length === 0}
-          className="mt-3 w-full bg-gray-900 hover:bg-gray-950 py-2 rounded font-semibold border border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Clear All
-        </button>
-<Link
-  href="/grocery"
-  className="mt-3 w-full bg-emerald-600 hover:bg-emerald-700 py-2 rounded font-semibold text-center block"
->
-  Grocery List
-</Link>
-<Link
-  href="/meals"
-  className="mt-3 w-full bg-purple-600 hover:bg-purple-700 py-2 rounded font-semibold text-center block"
->
-  Meals
-</Link>
-        <div className="mt-6">
-          <h3 className="text-lg font-semibold mb-2">History</h3>
-
+        <DashboardCard title="History">
           {history.length === 0 ? (
             <p className="text-sm text-gray-400">
               No history yet — calculate your macros to start logging entries.
@@ -270,15 +312,16 @@ const remaining = current
               {history.map((e) => (
                 <li
                   key={e.id}
-                  className="flex items-center justify-between rounded border border-gray-700 bg-gray-900 p-3"
+                  className="flex items-center justify-between rounded-xl border border-gray-700 bg-gray-900 p-3"
                 >
                   <button
                     onClick={() => restoreEntry(e)}
-                    className="text-left flex-1"
+                    className="flex-1 text-left"
                     title="Restore this entry"
                   >
                     <div className="text-sm font-semibold">
-                      {e.calories} kcal • P {e.protein} • C {e.carbs} • F {e.fat}
+                      {e.calories} kcal • P {e.protein} • C {e.carbs} • F{" "}
+                      {e.fat}
                     </div>
                     <div className="text-xs text-gray-400">
                       {formatUpdatedAt(e.updatedAt)}
@@ -290,7 +333,6 @@ const remaining = current
                         </>
                       ) : null}
                     </div>
-                    
                   </button>
 
                   <button
@@ -300,12 +342,11 @@ const remaining = current
                   >
                     ✕
                   </button>
-                  
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </DashboardCard>
       </div>
     </AppShell>
   );
