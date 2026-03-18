@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "./components/AppShell";
 import { loadLog, sumMacros, todayISO } from "./lib/macroLog";
+import { loadGroceryList } from "./lib/grocery";
 import {
   MacroEntry,
   loadCurrent,
@@ -71,11 +72,31 @@ function ProgressRow({
     </div>
   );
 }
-
+function SnapshotCard({
+  label,
+  value,
+  sublabel,
+}: {
+  label: string;
+  value: string | number;
+  sublabel?: string;
+}) {
+  return (
+    <div className="rounded-xl bg-gray-900 p-3 text-center">
+      <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 text-xl font-bold">{value}</p>
+      {sublabel ? (
+        <p className="mt-1 text-xs text-gray-500">{sublabel}</p>
+      ) : null}
+    </div>
+  );
+}
 export default function Dashboard() {
   const [current, setCurrentState] = useState<MacroEntry | null>(null);
   const [history, setHistory] = useState<MacroEntry[]>([]);
   const [copied, setCopied] = useState(false);
+  const [todayLogCount, setTodayLogCount] = useState(0);
+  const [groceryCount, setGroceryCount] = useState(0);
   const [todayTotals, setTodayTotals] = useState({
     calories: 0,
     protein: 0,
@@ -87,10 +108,13 @@ export default function Dashboard() {
     const c = loadCurrent();
     const h = loadHistory();
     const todayEntries = loadLog(todayISO());
+    const groceryItems = loadGroceryList();
 
     setCurrentState(c);
     setHistory(h);
     setTodayTotals(sumMacros(todayEntries));
+    setTodayLogCount(todayEntries.length);
+    setGroceryCount(groceryItems.filter((item) => !item.bought).length);
   }, []);
 
   function copyToClipboard() {
@@ -145,6 +169,26 @@ export default function Dashboard() {
   return (
     <AppShell title="Dashboard" subtitle="Your daily nutrition overview">
       <div className="space-y-4">
+        <DashboardCard title="At a Glance">
+  <div className="grid grid-cols-3 gap-3">
+    <SnapshotCard
+      label="Meals"
+      value={todayLogCount}
+      sublabel="logged today"
+    />
+    <SnapshotCard
+      label="Grocery"
+      value={groceryCount}
+      sublabel="left to buy"
+    />
+    <SnapshotCard
+      label="Plans"
+      value={history.length}
+      sublabel="saved targets"
+    />
+  </div>
+</DashboardCard>
+        
         <DashboardCard title="Today’s Macro Progress">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm text-gray-400">{todayISO()}</span>
