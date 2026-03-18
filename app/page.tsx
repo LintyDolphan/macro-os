@@ -91,6 +91,27 @@ function SnapshotCard({
     </div>
   );
 }
+function QuickActionTile({
+  href,
+  icon,
+  label,
+  color,
+}: {
+  href: string;
+  icon: string;
+  label: string;
+  color: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-2xl px-4 py-4 text-center shadow-lg transition hover:scale-[1.02] ${color}`}
+    >
+      <div className="text-2xl">{icon}</div>
+      <div className="mt-2 text-sm font-semibold">{label}</div>
+    </Link>
+  );
+}
 export default function Dashboard() {
   const [current, setCurrentState] = useState<MacroEntry | null>(null);
   const [history, setHistory] = useState<MacroEntry[]>([]);
@@ -298,35 +319,34 @@ export default function Dashboard() {
 
         <DashboardCard title="Quick Actions">
           <div className="grid grid-cols-2 gap-3">
-            <Link
-              href="/calculator"
-              className="rounded-xl bg-blue-600 px-4 py-4 text-center font-semibold hover:bg-blue-700"
-            >
-              Set Macros
-            </Link>
+  <QuickActionTile
+    href="/calculator"
+    icon="🎯"
+    label="Set Macros"
+    color="bg-blue-600 hover:bg-blue-700"
+  />
 
-            <Link
-              href="/meals"
-              className="rounded-xl bg-purple-600 px-4 py-4 text-center font-semibold hover:bg-purple-700"
-            >
-              Meals
-            </Link>
+  <QuickActionTile
+    href="/meals"
+    icon="🍽️"
+    label="Meals"
+    color="bg-purple-600 hover:bg-purple-700"
+  />
 
-            <Link
-              href="/grocery"
-              className="rounded-xl bg-emerald-600 px-4 py-4 text-center font-semibold hover:bg-emerald-700"
-            >
-              Grocery
-            </Link>
+  <QuickActionTile
+    href="/grocery"
+    icon="🛒"
+    label="Grocery"
+    color="bg-emerald-600 hover:bg-emerald-700"
+  />
 
-            <Link
-              href="/progress"
-              className="rounded-xl bg-gray-700 px-4 py-4 text-center font-semibold hover:bg-gray-600"
-            >
-              Progress
-            </Link>
-          </div>
-
+  <QuickActionTile
+    href="/progress"
+    icon="📈"
+    label="Progress"
+    color="bg-gray-700 hover:bg-gray-600"
+  />
+</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <button
               onClick={copyToClipboard}
