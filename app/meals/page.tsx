@@ -68,7 +68,11 @@ useEffect(() => {
 function logSelectedToToday() {
   if (selected.length === 0) return;
 
-  addLogEntry("Meal plan", selectedMacros);
+  const mealNames = selected
+    .map(({ recipe, servings }) => `${recipe.name}${servings > 1 ? ` x${servings}` : ""}`)
+    .join(", ");
+
+  addLogEntry(mealNames, selectedMacros);
   setTodayEntries(loadLog(todayISO()));
   setSelected([]);
 }
