@@ -4,11 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/meals", label: "Meals" },
-  { href: "/grocery", label: "Grocery" },
-  { href: "/progress", label: "Progress" },
-  { href: "/settings", label: "Settings" },
+  { href: "/", label: "Dashboard", icon: "🏠" },
+  { href: "/meals", label: "Meals", icon: "🍽️" },
+  { href: "/grocery", label: "Grocery", icon: "🛒" },
+  { href: "/progress", label: "Progress", icon: "📈" },
+  { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
 export default function BottomNav() {
@@ -33,7 +33,8 @@ export default function BottomNav() {
                   : "text-gray-400 hover:bg-gray-800 hover:text-white"
               }`}
             >
-              <span className="truncate">{item.label}</span>
+              <span className="text-base leading-none">{item.icon}</span>
+              <span className="mt-1 truncate">{item.label}</span>
             </Link>
           );
         })}
