@@ -44,11 +44,13 @@ function ProgressRow({
   consumed,
   target,
   unit = "",
+  colorClass,
 }: {
   label: string;
   consumed: number;
   target: number;
   unit?: string;
+  colorClass: string;
 }) {
   const safeTarget = Math.max(target, 1);
   const percent = Math.min((consumed / safeTarget) * 100, 100);
@@ -65,7 +67,7 @@ function ProgressRow({
 
       <div className="h-2 w-full rounded-full bg-gray-700">
         <div
-          className="h-2 rounded-full bg-blue-500 transition-all"
+          className={`h-2 rounded-full transition-all ${colorClass}`}
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -73,18 +75,21 @@ function ProgressRow({
   );
 }
 function SnapshotCard({
+  icon,
   label,
   value,
   sublabel,
 }: {
+  icon: string;
   label: string;
   value: string | number;
   sublabel?: string;
 }) {
   return (
-    <div className="rounded-xl bg-gray-900 p-3 text-center">
-      <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="mt-1 text-xl font-bold">{value}</p>
+    <div className="rounded-2xl bg-gray-900 p-4 text-center shadow-md">
+      <div className="text-2xl">{icon}</div>
+      <p className="mt-2 text-xs uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 text-2xl font-bold">{value}</p>
       {sublabel ? (
         <p className="mt-1 text-xs text-gray-500">{sublabel}</p>
       ) : null}
@@ -193,16 +198,19 @@ export default function Dashboard() {
         <DashboardCard title="At a Glance">
   <div className="grid grid-cols-3 gap-3">
     <SnapshotCard
+      icon="🍽️"
       label="Meals"
       value={todayLogCount}
       sublabel="logged today"
     />
     <SnapshotCard
+      icon="🛒"
       label="Grocery"
       value={groceryCount}
       sublabel="left to buy"
     />
     <SnapshotCard
+      icon="📋"
       label="Plans"
       value={history.length}
       sublabel="saved targets"
@@ -218,28 +226,32 @@ export default function Dashboard() {
           {current ? (
             <div className="space-y-4">
               <ProgressRow
-                label="Calories"
-                consumed={todayTotals.calories}
-                target={current.calories}
-              />
-              <ProgressRow
-                label="Protein"
-                consumed={todayTotals.protein}
-                target={current.protein}
-                unit="g"
-              />
-              <ProgressRow
-                label="Carbs"
-                consumed={todayTotals.carbs}
-                target={current.carbs}
-                unit="g"
-              />
-              <ProgressRow
-                label="Fat"
-                consumed={todayTotals.fat}
-                target={current.fat}
-                unit="g"
-              />
+  label="Calories"
+  consumed={todayTotals.calories}
+  target={current.calories}
+  colorClass="bg-blue-500"
+/>
+<ProgressRow
+  label="Protein"
+  consumed={todayTotals.protein}
+  target={current.protein}
+  unit="g"
+  colorClass="bg-emerald-500"
+/>
+<ProgressRow
+  label="Carbs"
+  consumed={todayTotals.carbs}
+  target={current.carbs}
+  unit="g"
+  colorClass="bg-amber-500"
+/>
+<ProgressRow
+  label="Fat"
+  consumed={todayTotals.fat}
+  target={current.fat}
+  unit="g"
+  colorClass="bg-purple-500"
+/>
             </div>
           ) : (
             <p className="text-sm text-gray-400">
