@@ -123,6 +123,8 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [todayLogCount, setTodayLogCount] = useState(0);
   const [groceryCount, setGroceryCount] = useState(0);
+  const [recentMeals, setRecentMeals] = useState<{ id: string; name: string }[]>([]);
+  const [groceryPreview, setGroceryPreview] = useState<{ id: string; name: string }[]>([]); 
   const [todayTotals, setTodayTotals] = useState({
     calories: 0,
     protein: 0,
@@ -138,9 +140,26 @@ export default function Dashboard() {
 
     setCurrentState(c);
     setHistory(h);
+    
     setTodayTotals(sumMacros(todayEntries));
     setTodayLogCount(todayEntries.length);
     setGroceryCount(groceryItems.filter((item) => !item.bought).length);
+    setRecentMeals(
+    todayEntries.slice(0, 3).map((entry) => ({
+     id: entry.id,
+     name: entry.name,
+   }))
+);
+
+setGroceryPreview(
+  groceryItems
+    .filter((item) => !item.bought)
+    .slice(0, 3)
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+    }))
+);
   }, []);
 
   function copyToClipboard() {
@@ -377,6 +396,54 @@ export default function Dashboard() {
             </button>
           </div>
         </DashboardCard>
+
+<DashboardCard title="Recent Meals">
+  {recentMeals.length > 0 ? (
+    <ul className="space-y-2">
+      {recentMeals.map((meal) => (
+        <li
+          key={meal.id}
+          className="rounded-xl bg-gray-900 px-3 py-2 text-sm text-gray-200"
+        >
+          {meal.name}
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p className="text-sm text-gray-400">No meals logged today yet.</p>
+  )}
+
+  <Link
+    href="/meals"
+    className="mt-3 block text-sm font-medium text-blue-400 hover:text-blue-300"
+  >
+    View Meals →
+  </Link>
+</DashboardCard>
+
+<DashboardCard title="Grocery Preview">
+  {groceryPreview.length > 0 ? (
+    <ul className="space-y-2">
+      {groceryPreview.map((item) => (
+        <li
+          key={item.id}
+          className="rounded-xl bg-gray-900 px-3 py-2 text-sm text-gray-200"
+        >
+          {item.name}
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p className="text-sm text-gray-400">Your grocery list is clear.</p>
+  )}
+
+  <Link
+    href="/grocery"
+    className="mt-3 block text-sm font-medium text-emerald-400 hover:text-emerald-300"
+  >
+    View Grocery →
+  </Link>
+</DashboardCard>
 
         <DashboardCard title="History">
           {history.length === 0 ? (
