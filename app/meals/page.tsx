@@ -7,10 +7,18 @@ import type { GroceryCategory, GroceryItem } from "../lib/grocery";
 import { loadGroceryList } from "../lib/grocery";
 import { addIngredientsToGrocery, scaleQty } from "../lib/mealplan";
 import type { Ingredient, Recipe } from "../lib/recipes";
-import { TEMPLATE_RECIPES, addRecipe, deleteRecipe, loadRecipes } from "../lib/recipes";
 import { saveGroceryList } from "../lib/grocery";
 import { addLogEntry, loadLog, sumMacros, todayISO } from "../lib/macroLog";
 import type { MacroLogEntry } from "../lib/macroLog";
+import {
+  TEMPLATE_RECIPES,
+  addRecipe,
+  deleteRecipe,
+  loadRecipes,
+  exportRecipeShareCode,
+  importRecipeShareCode,
+  mergeImportedRecipe,
+} from "../lib/recipes";
 
 type SelectedMeal = {
   recipe: Recipe;
@@ -44,6 +52,9 @@ export default function MealsPage() {
   const [totalCarbs, setTotalCarbs] = useState("");
   const [totalFat, setTotalFat] = useState("");
   const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
+  const [recipeShareCode, setRecipeShareCode] = useState("");
+  const [recipeShareMsg, setRecipeShareMsg] = useState<string | null>(null);
+  const [recipeShareErr, setRecipeShareErr] = useState<string | null>(null);
 
 
 
@@ -225,6 +236,32 @@ const macros = {
 function toggleRecipeSteps(recipeId: string) {
   setExpandedRecipeId((prev) => (prev === recipeId ? null : recipeId));
 }
+async function onShareRecipe(recipe: Recipe) {
+  try {
+    const code = exportRecipeShareCode(recipe);
+    await navigator.clipboard.writeText(code);
+    setRecipeShareMsg("Recipe code copied ✅");
+    setRecipeShareErr(null);
+    window.setTimeout(() => setRecipeShareMsg(null), 1500);
+  } catch {
+    setRecipeShareErr("Couldn’t copy recipe code.");
+    setRecipeShareMsg(null);
+  }
+}
+
+function onImportRecipe() {
+  try {
+    const imported = importRecipeShareCode(recipeShareCode);
+    setMyRecipes((prev) => mergeImportedRecipe(prev, imported));
+    setRecipeShareMsg("Recipe imported ✅");
+    setRecipeShareErr(null);
+    setRecipeShareCode("");
+    window.setTimeout(() => setRecipeShareMsg(null), 1500);
+  } catch {
+    setRecipeShareErr("Invalid recipe code.");
+    setRecipeShareMsg(null);
+  }
+}
 
   return (
     <AppShell title="Meals" subtitle="Plan meals and log macros">
@@ -285,7 +322,41 @@ function toggleRecipeSteps(recipeId: string) {
             <ul className="mt-2 space-y-2">
              {selected.map(({ recipe, servings }) => {
   const perPlanMacros = macrosForSelectedMeal(recipe, servings);
+<div className="mb-4 rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+  <h2 className="text-lg font-semibold">Share Recipe</h2>
+  <p className="mt-1 text-sm text-gray-300">
+    Paste a recipe code to import it into your recipes.
+  </p>
 
+  {recipeShareMsg && (
+    <div className="mt-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+      {recipeShareMsg}
+    </div>
+  )}
+
+  {recipeShareErr && (
+    <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+      {recipeShareErr}
+    </div>
+  )}
+
+  <textarea
+    value={recipeShareCode}
+    onChange={(e) => setRecipeShareCode(e.target.value)}
+    placeholder="Paste recipe code here..."
+    className="mt-3 w-full rounded bg-gray-900 border border-gray-700 p-3 text-sm"
+    rows={3}
+  />
+
+  <button
+    type="button"
+    onClick={onImportRecipe}
+    disabled={!recipeShareCode.trim()}
+    className="mt-3 w-full rounded bg-emerald-600 py-2 font-semibold hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    Import Recipe
+  </button>
+</div>
   return (
     
     <li
@@ -445,13 +516,24 @@ function toggleRecipeSteps(recipeId: string) {
       )}
 
       {!r.isTemplate && (
-        <button
-          onClick={() => onDeleteRecipe(r.id)}
-          className="mt-3 text-sm text-gray-300 hover:text-white"
-        >
-          Delete recipe
-        </button>
-      )}
+  <div className="mt-3 flex gap-3">
+    <button
+      type="button"
+      onClick={() => onShareRecipe(r)}
+      className="text-sm text-blue-400 hover:text-blue-300"
+    >
+      Share Recipe
+    </button>
+
+    <button
+      type="button"
+      onClick={() => onDeleteRecipe(r.id)}
+      className="text-sm text-gray-300 hover:text-white"
+    >
+      Delete Recipe
+    </button>
+  </div>
+)}
     </div>
   );
 })}

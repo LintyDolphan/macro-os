@@ -81,3 +81,35 @@ export function deleteRecipe(recipes: Recipe[], id: string) {
   saveRecipes(next);
   return next;
 }
+export function exportRecipeShareCode(recipe: Recipe) {
+  const payload = { v: 1, recipe };
+  return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+}
+
+export function importRecipeShareCode(code: string): Recipe {
+  const json = decodeURIComponent(escape(atob(code.trim())));
+  const payload = JSON.parse(json);
+
+  if (payload?.recipe) {
+    return payload.recipe as Recipe;
+  }
+
+  throw new Error("Invalid recipe share code");
+}
+
+export function mergeImportedRecipe(recipes: Recipe[], recipe: Recipe) {
+  const exists = recipes.some(
+    (r) => r.name.trim().toLowerCase() === recipe.name.trim().toLowerCase()
+  );
+
+  const importedRecipe: Recipe = {
+    ...recipe,
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    isTemplate: false,
+  };
+
+  const next = exists ? recipes : [importedRecipe, ...recipes];
+  saveRecipes(next);
+  return next;
+}
