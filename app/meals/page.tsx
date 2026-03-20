@@ -45,9 +45,11 @@ export default function MealsPage() {
   const [totalFat, setTotalFat] = useState("");
 
 
+
   // Create recipe form state
   const [recipeName, setRecipeName] = useState("");
   const [ingredients, setIngredients] = useState<Ingredient[]>([emptyIngredient()]);
+  const [steps, setSteps] = useState<string[]>([""]);
 
   useEffect(() => {
     setMyRecipes(loadRecipes());
@@ -148,7 +150,17 @@ function addSelectedToGrocery() {
 
 
 
+function updateStep(i: number, value: string) {
+  setSteps((prev) => prev.map((step, idx) => (idx === i ? value : step)));
+}
 
+function addStepRow() {
+  setSteps((prev) => [...prev, ""]);
+}
+
+function removeStepRow(i: number) {
+  setSteps((prev) => prev.filter((_, idx) => idx !== i));
+}
 
   function updateIngredient(i: number, patch: Partial<Ingredient>) {
     setIngredients((prev) =>
@@ -175,6 +187,9 @@ function addSelectedToGrocery() {
         category: ing.category,
       }))
       .filter((ing) => ing.name.length > 0);
+      const cleanedSteps = steps
+      .map((step) => step.trim())
+     .filter((step) => step.length > 0);
 const servingsNum = Number(defaultServings) || 1;
 
 const macros = {
@@ -191,11 +206,14 @@ const macros = {
     ingredients: cleanedIngredients,
     defaultServings: servingsNum,
     totalMacros: macros,
+    steps: cleanedSteps,
   })
+  
 );
 
     setRecipeName("");
     setIngredients([emptyIngredient()]);
+    setSteps([""]);
     setTab("pick");
   }
 
@@ -261,44 +279,57 @@ const macros = {
             </p>
           ) : (
             <ul className="mt-2 space-y-2">
-              {selected.map(({ recipe, servings }) => (
-  <li key={recipe.id} className="rounded border border-gray-700 bg-gray-900 p-3">
-    <div className="flex items-start justify-between gap-3">
-      <div className="flex-1">
-        <div className="font-semibold">{recipe.name}</div>
-        <div className="text-xs text-gray-400">{recipe.ingredients.length} ingredients</div>
+             {selected.map(({ recipe, servings }) => {
+  const perPlanMacros = macrosForSelectedMeal(recipe, servings);
+
+  return (
+    <li
+      key={recipe.id}
+      className="rounded-2xl border border-gray-700 bg-gray-900 p-4 shadow-sm"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-white">{recipe.name}</div>
+          <div className="mt-1 text-xs text-gray-400">
+            {recipe.ingredients.length} ingredients
+            {recipe.steps?.length ? ` • ${recipe.steps.length} steps` : ""}
+          </div>
+          <div className="mt-2 text-xs text-gray-300">
+            {perPlanMacros.calories} kcal • P {perPlanMacros.protein} • C{" "}
+            {perPlanMacros.carbs} • F {perPlanMacros.fat}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => bumpServings(recipe.id, -1)}
+            className="rounded bg-gray-700 px-3 py-2 font-semibold hover:bg-gray-600"
+            title="Decrease servings"
+          >
+            –
+          </button>
+
+          <input
+            value={servings}
+            onChange={(e) => setServings(recipe.id, Number(e.target.value))}
+            className="w-14 rounded border border-gray-700 bg-gray-900 p-2 text-center"
+            inputMode="numeric"
+          />
+
+          <button
+            type="button"
+            onClick={() => bumpServings(recipe.id, 1)}
+            className="rounded bg-gray-700 px-3 py-2 font-semibold hover:bg-gray-600"
+            title="Increase servings"
+          >
+            +
+          </button>
+        </div>
       </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => bumpServings(recipe.id, -1)}
-          className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 font-semibold"
-          title="Decrease servings"
-        >
-          –
-        </button>
-
-        <input
-          value={servings}
-          onChange={(e) => setServings(recipe.id, Number(e.target.value))}
-          className="w-14 text-center p-2 rounded bg-gray-900 border border-gray-700"
-          inputMode="numeric"
-        />
-
-        <button
-          type="button"
-          onClick={() => bumpServings(recipe.id, 1)}
-          className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 font-semibold"
-          title="Increase servings"
-        >
-          +
-        </button>
-      </div>
-    </div>
-  </li>
-))}
-
+    </li>
+  );
+})}
             </ul>
           )}
 
@@ -356,40 +387,47 @@ const macros = {
 
               return (
                 <div
-                  key={r.id}
-                  className="bg-gray-800 p-4 rounded-lg border border-gray-700"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="font-semibold">{r.name}</div>
-                      <div className="text-xs text-gray-400">
-                        {r.isTemplate ? "Template" : "My recipe"} •{" "}
-                        {r.ingredients.length} ingredients
-                      </div>
-                    </div>
+  key={r.id}
+  className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm"
+>
+  <div className="flex items-start justify-between gap-3">
+    <div className="flex-1">
+      <div className="text-sm font-semibold text-white">{r.name}</div>
+      <div className="mt-1 text-xs text-gray-400">
+        {r.isTemplate ? "Template" : "My recipe"} • {r.ingredients.length} ingredients
+        {r.steps?.length ? ` • ${r.steps.length} steps` : ""}
+      </div>
+      <div className="mt-2 text-xs text-gray-300">
+        {r.totalMacros.calories} kcal total • P {r.totalMacros.protein} • C{" "}
+        {r.totalMacros.carbs} • F {r.totalMacros.fat}
+      </div>
+      <div className="mt-1 text-xs text-gray-500">
+        Default servings: {r.defaultServings}
+      </div>
+    </div>
 
-                    <button
-                      onClick={() => toggleSelect(r)}
-                      className={`px-3 py-2 rounded font-semibold ${
-                        isSelected
-                          ? "bg-gray-700 hover:bg-gray-600"
-                          : "bg-blue-600 hover:bg-blue-700"
-                      }`}
-                    >
-                      {isSelected ? "Remove" : "Select"}
-                    </button>
-                  </div>
+    <button
+      onClick={() => toggleSelect(r)}
+      className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+        isSelected
+          ? "bg-gray-700 hover:bg-gray-600"
+          : "bg-blue-600 hover:bg-blue-700"
+      }`}
+    >
+      {isSelected ? "Remove" : "Select"}
+    </button>
+  </div>
 
-                  {!r.isTemplate && (
-                    <button
-                      onClick={() => onDeleteRecipe(r.id)}
-                      className="mt-3 text-sm text-gray-300 hover:text-white"
-                    >
-                      Delete recipe
-                    </button>
-                  )}
-                </div>
-              );
+  {!r.isTemplate && (
+    <button
+      onClick={() => onDeleteRecipe(r.id)}
+      className="mt-3 text-sm text-gray-300 hover:text-white"
+    >
+      Delete recipe
+    </button>
+  )}
+</div>
+ );
             })}
           </div>
         ) : (
@@ -519,7 +557,49 @@ const macros = {
             >
               + Add Ingredient
             </button>
+<div className="mt-4">
+  <h3 className="mb-2 text-sm font-semibold text-gray-300">
+    Recipe Steps (optional)
+  </h3>
 
+  <div className="space-y-3">
+    {steps.map((step, idx) => (
+      <div
+        key={idx}
+        className="rounded border border-gray-700 bg-gray-900 p-3"
+      >
+        <label className="block text-sm text-gray-300 mb-1">
+          Step {idx + 1}
+        </label>
+        <textarea
+          value={step}
+          onChange={(e) => updateStep(idx, e.target.value)}
+          placeholder="e.g., Brown the turkey in a pan..."
+          className="w-full rounded bg-gray-900 border border-gray-700 p-3 focus:outline-none focus:ring-2 focus:ring-blue-600"
+          rows={2}
+        />
+
+        {steps.length > 1 && (
+          <button
+            type="button"
+            onClick={() => removeStepRow(idx)}
+            className="mt-2 text-sm text-gray-300 hover:text-white"
+          >
+            Remove step
+          </button>
+        )}
+      </div>
+    ))}
+  </div>
+
+  <button
+    type="button"
+    onClick={addStepRow}
+    className="mt-3 w-full rounded bg-gray-700 py-2 font-semibold hover:bg-gray-600"
+  >
+    + Add Step
+  </button>
+</div>
             <button
               type="submit"
               className="mt-3 w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-semibold"

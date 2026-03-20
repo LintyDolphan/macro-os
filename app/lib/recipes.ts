@@ -12,10 +12,9 @@ export type Recipe = {
   ingredients: Ingredient[];
   createdAt: string;
   isTemplate?: boolean;
-
-  // ✅ new:
-  defaultServings: number; // e.g., 2, 4, 6
-  totalMacros: Macros;     // totals for the entire recipe batch
+  defaultServings: number;
+  totalMacros: Macros;
+  steps?: string[]; // optional cooking/instruction steps
 };
 export type Macros = {
   calories: number;
@@ -68,9 +67,9 @@ export function addRecipe(
     ingredients: recipe.ingredients,
     createdAt: new Date().toISOString(),
     isTemplate: false,
-
     defaultServings: recipe.defaultServings,
     totalMacros: recipe.totalMacros,
+    steps: recipe.steps ?? [],
   };
 
   const next = [newRecipe, ...recipes];
