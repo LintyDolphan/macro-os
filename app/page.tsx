@@ -123,8 +123,17 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [todayLogCount, setTodayLogCount] = useState(0);
   const [groceryCount, setGroceryCount] = useState(0);
-  const [recentMeals, setRecentMeals] = useState<{ id: string; name: string }[]>([]);
   const [groceryPreview, setGroceryPreview] = useState<{ id: string; name: string }[]>([]); 
+  const [recentMeals, setRecentMeals] = useState<
+  {
+    id: string;
+    name: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  }[]
+>([]);
   const [todayTotals, setTodayTotals] = useState({
     calories: 0,
     protein: 0,
@@ -145,10 +154,14 @@ export default function Dashboard() {
     setTodayLogCount(todayEntries.length);
     setGroceryCount(groceryItems.filter((item) => !item.bought).length);
     setRecentMeals(
-    todayEntries.slice(0, 3).map((entry) => ({
-     id: entry.id,
-     name: entry.name,
-   }))
+  todayEntries.slice(0, 3).map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    calories: entry.macros.calories,
+    protein: entry.macros.protein,
+    carbs: entry.macros.carbs,
+    fat: entry.macros.fat,
+  }))
 );
 
 setGroceryPreview(
@@ -398,18 +411,23 @@ setGroceryPreview(
         </DashboardCard>
 
 <DashboardCard title="Recent Meals">
-  {recentMeals.length > 0 ? (
-    <ul className="space-y-2">
-      {recentMeals.map((meal) => (
-        <li
-          key={meal.id}
-          className="rounded-xl bg-gray-900 px-3 py-2 text-sm text-gray-200"
-        >
+{recentMeals.length > 0 ? (
+  <ul className="space-y-2">
+    {recentMeals.map((meal) => (
+      <li
+        key={meal.id}
+        className="rounded-xl bg-gray-900 px-3 py-3"
+      >
+        <div className="text-sm font-medium text-gray-100 leading-snug">
           {meal.name}
-        </li>
-      ))}
-    </ul>
-  ) : (
+        </div>
+        <div className="mt-1 text-xs text-gray-400">
+          {meal.calories} kcal • P {meal.protein} • C {meal.carbs} • F {meal.fat}
+        </div>
+      </li>
+    ))}
+  </ul>
+) : (
     <p className="text-sm text-gray-400">No meals logged today yet.</p>
   )}
 
