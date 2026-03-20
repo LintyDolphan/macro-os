@@ -293,35 +293,6 @@ function onImportRecipe() {
             Make Recipe
           </button>
         </div>
-
-        {/* Selected cart */}
-        <div className="bg-gray-800 p-4 rounded-lg shadow-lg mb-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Selected</h2>
-            <span className="text-sm text-gray-300">{selected.length}</span>
-          </div>
-{addedMsg && (
-  <div className="mt-3 flex items-center justify-between gap-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-    <span>{addedMsg}</span>
-
-    <Link
-      href="/grocery"
-      className="whitespace-nowrap rounded bg-emerald-600/20 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/30"
-    >
-      View Grocery →
-    </Link>
-  </div>
-)}
-
-
-          {selected.length === 0 ? (
-            <p className="text-sm text-gray-400 mt-2">
-              Pick meals below to build your plan, then add ingredients to your grocery list.
-            </p>
-          ) : (
-            <ul className="mt-2 space-y-2">
-             {selected.map(({ recipe, servings }) => {
-  const perPlanMacros = macrosForSelectedMeal(recipe, servings);
 <div className="mb-4 rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
   <h2 className="text-lg font-semibold">Share Recipe</h2>
   <p className="mt-1 text-sm text-gray-300">
@@ -357,6 +328,34 @@ function onImportRecipe() {
     Import Recipe
   </button>
 </div>
+        {/* Selected cart */}
+        <div className="bg-gray-800 p-4 rounded-lg shadow-lg mb-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Selected</h2>
+            <span className="text-sm text-gray-300">{selected.length}</span>
+          </div>
+{addedMsg && (
+  <div className="mt-3 flex items-center justify-between gap-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+    <span>{addedMsg}</span>
+
+    <Link
+      href="/grocery"
+      className="whitespace-nowrap rounded bg-emerald-600/20 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-600/30"
+    >
+      View Grocery →
+    </Link>
+  </div>
+)}
+
+
+          {selected.length === 0 ? (
+            <p className="text-sm text-gray-400 mt-2">
+              Pick meals below to build your plan, then add ingredients to your grocery list.
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+             {selected.map(({ recipe, servings }) => {
+  const perPlanMacros = macrosForSelectedMeal(recipe, servings);
   return (
     
     <li
