@@ -43,6 +43,7 @@ export default function MealsPage() {
   const [totalProtein, setTotalProtein] = useState("");
   const [totalCarbs, setTotalCarbs] = useState("");
   const [totalFat, setTotalFat] = useState("");
+  const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
 
 
 
@@ -221,6 +222,9 @@ const macros = {
   setMyRecipes((prev) => deleteRecipe(prev, id));
   setSelected((prev) => prev.filter((s) => s.recipe.id !== id));
 }
+function toggleRecipeSteps(recipeId: string) {
+  setExpandedRecipeId((prev) => (prev === recipeId ? null : recipeId));
+}
 
   return (
     <AppShell title="Meals" subtitle="Plan meals and log macros">
@@ -283,6 +287,7 @@ const macros = {
   const perPlanMacros = macrosForSelectedMeal(recipe, servings);
 
   return (
+    
     <li
       key={recipe.id}
       className="rounded-2xl border border-gray-700 bg-gray-900 p-4 shadow-sm"
@@ -326,6 +331,7 @@ const macros = {
             +
           </button>
         </div>
+        
       </div>
     </li>
   );
@@ -381,54 +387,74 @@ const macros = {
         {/* Tab content */}
         {tab === "pick" ? (
           <div className="space-y-3">
-            {allPickable.map((r) => {
-                 const isSelected = selected.some((s) => s.recipe.id === r.id);
+{allPickable.map((r) => {
+  const isSelected = selected.some((s) => s.recipe.id === r.id);
 
+  return (
+    <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-white">{r.name}</div>
+          <div className="mt-1 text-xs text-gray-400">
+            {r.isTemplate ? "Template" : "My recipe"} • {r.ingredients.length} ingredients
+            {r.steps?.length ? ` • ${r.steps.length} steps` : ""}
+          </div>
+          <div className="mt-2 text-xs text-gray-300">
+            {r.totalMacros.calories} kcal total • P {r.totalMacros.protein} • C{" "}
+            {r.totalMacros.carbs} • F {r.totalMacros.fat}
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            Default servings: {r.defaultServings}
+          </div>
+        </div>
 
-              return (
-                <div
-  key={r.id}
-  className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm"
->
-  <div className="flex items-start justify-between gap-3">
-    <div className="flex-1">
-      <div className="text-sm font-semibold text-white">{r.name}</div>
-      <div className="mt-1 text-xs text-gray-400">
-        {r.isTemplate ? "Template" : "My recipe"} • {r.ingredients.length} ingredients
-        {r.steps?.length ? ` • ${r.steps.length} steps` : ""}
+        <button
+          onClick={() => toggleSelect(r)}
+          className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+            isSelected
+              ? "bg-gray-700 hover:bg-gray-600"
+              : "bg-blue-600 hover:bg-blue-700"
+          }`}
+        >
+          {isSelected ? "Remove" : "Select"}
+        </button>
       </div>
-      <div className="mt-2 text-xs text-gray-300">
-        {r.totalMacros.calories} kcal total • P {r.totalMacros.protein} • C{" "}
-        {r.totalMacros.carbs} • F {r.totalMacros.fat}
-      </div>
-      <div className="mt-1 text-xs text-gray-500">
-        Default servings: {r.defaultServings}
-      </div>
+
+      {r.steps && r.steps.length > 0 && (
+        <button
+          type="button"
+          onClick={() => toggleRecipeSteps(r.id)}
+          className="mt-3 text-sm text-blue-400 hover:text-blue-300"
+        >
+          {expandedRecipeId === r.id ? "Hide Steps" : "View Steps"}
+        </button>
+      )}
+
+      {expandedRecipeId === r.id && r.steps && r.steps.length > 0 && (
+        <div className="mt-3 rounded-xl border border-gray-700 bg-gray-900 p-3">
+          <h4 className="mb-2 text-sm font-semibold text-gray-200">Steps</h4>
+          <ol className="space-y-2 text-sm text-gray-300">
+            {r.steps.map((step, idx) => (
+              <li key={idx} className="flex gap-2">
+                <span className="font-semibold text-gray-400">{idx + 1}.</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {!r.isTemplate && (
+        <button
+          onClick={() => onDeleteRecipe(r.id)}
+          className="mt-3 text-sm text-gray-300 hover:text-white"
+        >
+          Delete recipe
+        </button>
+      )}
     </div>
-
-    <button
-      onClick={() => toggleSelect(r)}
-      className={`rounded-xl px-3 py-2 text-sm font-semibold ${
-        isSelected
-          ? "bg-gray-700 hover:bg-gray-600"
-          : "bg-blue-600 hover:bg-blue-700"
-      }`}
-    >
-      {isSelected ? "Remove" : "Select"}
-    </button>
-  </div>
-
-  {!r.isTemplate && (
-    <button
-      onClick={() => onDeleteRecipe(r.id)}
-      className="mt-3 text-sm text-gray-300 hover:text-white"
-    >
-      Delete recipe
-    </button>
-  )}
-</div>
- );
-            })}
+  );
+})}
           </div>
         ) : (
           <form onSubmit={onCreateRecipe} className="bg-gray-800 p-4 rounded-lg shadow-lg">
@@ -472,6 +498,7 @@ const macros = {
       value={totalProtein}
       onChange={(e) => setTotalProtein(e.target.value)}
       className="w-full p-3 rounded bg-gray-900 border border-gray-700"
+      
     />
   </div>
 
@@ -495,6 +522,7 @@ const macros = {
     />
   </div>
 </div>
+
             <div className="space-y-3">
               {ingredients.map((ing, idx) => (
                 <div key={idx} className="rounded border border-gray-700 bg-gray-900 p-3">
