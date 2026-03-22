@@ -57,13 +57,20 @@ function ProgressRow({
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-gray-300">{label}</span>
-        <span className="text-gray-400">
+      {label ? (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-300">{label}</span>
+          <span className="text-gray-400">
+            {consumed} / {target}
+            {unit}
+          </span>
+        </div>
+      ) : (
+        <div className="text-right text-xs text-gray-500">
           {consumed} / {target}
           {unit}
-        </span>
-      </div>
+        </div>
+      )}
 
       <div className="h-2 w-full rounded-full bg-gray-700">
         <div
@@ -227,141 +234,141 @@ setGroceryPreview(
   return (
     <AppShell title="Dashboard" subtitle="Your daily nutrition overview">
       <div className="space-y-4">
-        <DashboardCard title="At a Glance">
-  <div className="grid grid-cols-3 gap-3">
-    <SnapshotCard
-      icon="🍽️"
-      label="Meals"
-      value={todayLogCount}
-      sublabel="logged today"
-    />
-    <SnapshotCard
-      icon="🛒"
-      label="Grocery"
-      value={groceryCount}
-      sublabel="left to buy"
-    />
-    <SnapshotCard
-      icon="📋"
-      label="Plans"
-      value={history.length}
-      sublabel="saved targets"
-    />
+       <DashboardCard title="At a Glance">
+  <div className="grid grid-cols-4 gap-3">
+    <div className="col-span-1">
+      <SnapshotCard
+        icon="🍽️"
+        label="Meals"
+        value={todayLogCount}
+        sublabel="logged today"
+      />
+    </div>
+
+    <div className="col-span-1">
+      <SnapshotCard
+        icon="🛒"
+        label="Grocery"
+        value={groceryCount}
+        sublabel="left to buy"
+      />
+    </div>
+
+    <div className="col-span-1">
+      <SnapshotCard
+        icon="📋"
+        label="Plans"
+        value={history.length}
+        sublabel="saved"
+      />
+    </div>
+
+    <div className="col-span-1">
+      <SnapshotCard
+        icon="📈"
+        label="Progress"
+        value="—"
+        sublabel="soon"
+      />
+    </div>
+
+    <div className="col-span-4 rounded-2xl bg-gray-900 p-4 shadow-md">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-gray-400">
+            Workout Panel
+          </p>
+          <p className="mt-1 text-lg font-semibold text-white">
+            Next scheduled workout
+          </p>
+          <p className="mt-1 text-sm text-gray-500">
+            Future space for coach / workout guidance
+          </p>
+        </div>
+        <div className="text-3xl">🏋️</div>
+      </div>
+    </div>
   </div>
 </DashboardCard>
         
         <DashboardCard title="Today’s Macro Progress">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm text-gray-400">{todayISO()}</span>
-          </div>
+  <div className="mb-3 flex items-center justify-between">
+    <span className="text-sm text-gray-400">{todayISO()}</span>
+  </div>
 
-          {current ? (
-            <div className="space-y-4">
-              <ProgressRow
-  label="Calories"
-  consumed={todayTotals.calories}
-  target={current.calories}
-  colorClass="bg-blue-500"
-/>
-<ProgressRow
-  label="Protein"
-  consumed={todayTotals.protein}
-  target={current.protein}
-  unit="g"
-  colorClass="bg-emerald-500"
-/>
-<ProgressRow
-  label="Carbs"
-  consumed={todayTotals.carbs}
-  target={current.carbs}
-  unit="g"
-  colorClass="bg-amber-500"
-/>
-<ProgressRow
-  label="Fat"
-  consumed={todayTotals.fat}
-  target={current.fat}
-  unit="g"
-  colorClass="bg-purple-500"
-/>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">
-              Set your macro targets to start tracking daily progress.
-            </p>
-          )}
-        </DashboardCard>
+  {current ? (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-300">Calories</span>
+          <span className="text-gray-400">
+            {remaining?.calories ?? 0} left
+          </span>
+        </div>
+        <ProgressRow
+          label=""
+          consumed={todayTotals.calories}
+          target={current.calories}
+          colorClass="bg-blue-500"
+        />
+      </div>
 
-        <DashboardCard title="Remaining Today">
-          {remaining ? (
-            <div className="grid grid-cols-2 gap-3 text-center">
-              <div className="rounded-xl bg-gray-900 p-3">
-                <p className="text-xs uppercase tracking-wide text-gray-400">
-                  Calories
-                </p>
-                <p className="text-xl font-bold">{remaining.calories}</p>
-              </div>
-              <div className="rounded-xl bg-gray-900 p-3">
-                <p className="text-xs uppercase tracking-wide text-gray-400">
-                  Protein
-                </p>
-                <p className="text-xl font-bold">{remaining.protein}g</p>
-              </div>
-              <div className="rounded-xl bg-gray-900 p-3">
-                <p className="text-xs uppercase tracking-wide text-gray-400">
-                  Carbs
-                </p>
-                <p className="text-xl font-bold">{remaining.carbs}g</p>
-              </div>
-              <div className="rounded-xl bg-gray-900 p-3">
-                <p className="text-xs uppercase tracking-wide text-gray-400">
-                  Fat
-                </p>
-                <p className="text-xl font-bold">{remaining.fat}g</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400">No targets set yet.</p>
-          )}
-        </DashboardCard>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-300">Protein</span>
+          <span className="text-gray-400">
+            {remaining?.protein ?? 0}g left
+          </span>
+        </div>
+        <ProgressRow
+          label=""
+          consumed={todayTotals.protein}
+          target={current.protein}
+          unit="g"
+          colorClass="bg-emerald-500"
+        />
+      </div>
 
-        <DashboardCard title="Current Targets">
-          {current?.inputs && (
-            <p className="mb-2 text-sm text-gray-300">
-              {niceLabel(current.inputs.sex)} • {current.inputs.age} •{" "}
-              {niceLabel(current.inputs.activity)} • {current.inputs.weightLbs} lb
-              • {current.inputs.heightIn} in •{" "}
-              {niceLabel(current.inputs.goal)}
-            </p>
-          )}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-300">Carbs</span>
+          <span className="text-gray-400">
+            {remaining?.carbs ?? 0}g left
+          </span>
+        </div>
+        <ProgressRow
+          label=""
+          consumed={todayTotals.carbs}
+          target={current.carbs}
+          unit="g"
+          colorClass="bg-amber-500"
+        />
+      </div>
 
-          {current?.updatedAt && (
-            <p className="mb-4 text-sm text-gray-400">
-              Last updated: {formatUpdatedAt(current.updatedAt)}
-            </p>
-          )}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-300">Fat</span>
+          <span className="text-gray-400">
+            {remaining?.fat ?? 0}g left
+          </span>
+        </div>
+        <ProgressRow
+          label=""
+          consumed={todayTotals.fat}
+          target={current.fat}
+          unit="g"
+          colorClass="bg-purple-500"
+        />
+      </div>
+    </div>
+  ) : (
+    <p className="text-sm text-gray-400">
+      Set your macro targets to start tracking daily progress.
+    </p>
+  )}
+</DashboardCard>
 
-          <div className="grid grid-cols-2 gap-4 text-center">
-            <div>
-              <p className="text-gray-400">Calories</p>
-              <p className="text-2xl font-bold">{current?.calories ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-gray-400">Protein (g)</p>
-              <p className="text-2xl font-bold">{current?.protein ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-gray-400">Carbs (g)</p>
-              <p className="text-2xl font-bold">{current?.carbs ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-gray-400">Fat (g)</p>
-              <p className="text-2xl font-bold">{current?.fat ?? "—"}</p>
-            </div>
-          </div>
-        </DashboardCard>
-
-        <DashboardCard title="Quick Actions">
+<DashboardCard title="Quick Actions">
           <div className="grid grid-cols-2 gap-3">
   <QuickActionTile
     href="/calculator"
@@ -409,6 +416,44 @@ setGroceryPreview(
             </button>
           </div>
         </DashboardCard>
+        
+        <DashboardCard title="Current Targets">
+          {current?.inputs && (
+            <p className="mb-2 text-sm text-gray-300">
+              {niceLabel(current.inputs.sex)} • {current.inputs.age} •{" "}
+              {niceLabel(current.inputs.activity)} • {current.inputs.weightLbs} lb
+              • {current.inputs.heightIn} in •{" "}
+              {niceLabel(current.inputs.goal)}
+            </p>
+          )}
+
+          {current?.updatedAt && (
+            <p className="mb-4 text-sm text-gray-400">
+              Last updated: {formatUpdatedAt(current.updatedAt)}
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 gap-4 text-center">
+            <div>
+              <p className="text-gray-400">Calories</p>
+              <p className="text-2xl font-bold">{current?.calories ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Protein (g)</p>
+              <p className="text-2xl font-bold">{current?.protein ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Carbs (g)</p>
+              <p className="text-2xl font-bold">{current?.carbs ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-gray-400">Fat (g)</p>
+              <p className="text-2xl font-bold">{current?.fat ?? "—"}</p>
+            </div>
+          </div>
+        </DashboardCard>
+
+        
 
 <DashboardCard title="Recent Meals">
 {recentMeals.length > 0 ? (
