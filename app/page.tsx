@@ -93,15 +93,20 @@ function SnapshotCard({
   sublabel?: string;
 }) {
   return (
-    <div className="rounded-2xl bg-gray-900 p-4 text-center shadow-md">
+    <div className="h-full min-h-[110px] rounded-2xl bg-gray-900 p-3 flex flex-col items-center justify-center text-center">
       <div className="text-2xl">{icon}</div>
-      <p className="mt-2 text-xs uppercase tracking-wide text-gray-400">{label}</p>
-      <p className="mt-1 text-2xl font-bold">{value}</p>
-      {sublabel ? (
-        <p className="mt-1 text-[10px] text-gray-500 whitespace-nowrap">
-         {sublabel}
-        </p>
-      ) : null}
+
+<p className="mt-2 text-[10px] uppercase tracking-wide text-gray-400">
+  {label}
+</p>
+
+<p className="mt-1 text-xl font-bold text-white">
+  {value}
+</p>
+
+<p className="mt-1 text-[10px] text-gray-500 whitespace-nowrap">
+  {sublabel}
+</p>
     </div>
   );
 }
@@ -237,7 +242,7 @@ setGroceryPreview(
     <AppShell title="Dashboard" subtitle="Your daily nutrition overview">
       <div className="space-y-4">
        <DashboardCard title="At a Glance">
-  <div className="grid grid-cols-2 gap-3">
+  <div className="grid grid-cols-4 gap-3 items-stretch">
     <div className="col-span-1">
       <SnapshotCard
         icon="🍽️"
