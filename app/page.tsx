@@ -237,7 +237,7 @@ setGroceryPreview(
     <AppShell title="Dashboard" subtitle="Your daily nutrition overview">
       <div className="space-y-4">
        <DashboardCard title="At a Glance">
-  <div className="grid grid-cols-4 gap-3">
+  <div className="grid grid-cols-2 gap-3">
     <div className="col-span-1">
       <SnapshotCard
         icon="🍽️"
