@@ -420,40 +420,37 @@ setGroceryPreview(
         </DashboardCard>
 
         <DashboardCard title="Current Targets">
-          {current?.inputs && (
-            <p className="mb-2 text-sm text-gray-300">
-              {niceLabel(current.inputs.sex)} • {current.inputs.age} •{" "}
-              {niceLabel(current.inputs.activity)} • {current.inputs.weightLbs} lb
-              • {current.inputs.heightIn} in •{" "}
-              {niceLabel(current.inputs.goal)}
-            </p>
-          )}
+  {current ? (
+    <div className="space-y-3">
+      {current.inputs && (
+        <div className="text-xs uppercase tracking-wide text-gray-500 leading-relaxed">
+          {niceLabel(current.inputs.sex)} • {current.inputs.age} •{" "}
+          {niceLabel(current.inputs.activity)} • {current.inputs.weightLbs} lb •{" "}
+          {current.inputs.heightIn} in • {niceLabel(current.inputs.goal)}
+        </div>
+      )}
 
-          {current?.updatedAt && (
-            <p className="mb-4 text-sm text-gray-400">
-              Last updated: {formatUpdatedAt(current.updatedAt)}
-            </p>
-          )}
+      <div className="rounded-2xl bg-gray-900 p-4">
+        <div className="text-3xl font-bold text-white">
+          {current.calories} kcal
+        </div>
+        <div className="mt-2 text-sm text-gray-300">
+          P {current.protein} • C {current.carbs} • F {current.fat}
+        </div>
+      </div>
 
-          <div className="grid grid-cols-2 gap-4 text-center">
-            <div>
-              <p className="text-gray-400">Calories</p>
-              <p className="text-2xl font-bold">{current?.calories ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-gray-400">Protein (g)</p>
-              <p className="text-2xl font-bold">{current?.protein ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-gray-400">Carbs (g)</p>
-              <p className="text-2xl font-bold">{current?.carbs ?? "—"}</p>
-            </div>
-            <div>
-              <p className="text-gray-400">Fat (g)</p>
-              <p className="text-2xl font-bold">{current?.fat ?? "—"}</p>
-            </div>
-          </div>
-        </DashboardCard>
+      {current.updatedAt && (
+        <p className="text-xs text-gray-500">
+          Last updated: {formatUpdatedAt(current.updatedAt)}
+        </p>
+      )}
+    </div>
+  ) : (
+    <p className="text-sm text-gray-400">
+      No macro targets set yet.
+    </p>
+  )}
+</DashboardCard>
 
         
 
