@@ -98,7 +98,9 @@ function SnapshotCard({
       <p className="mt-2 text-xs uppercase tracking-wide text-gray-400">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value}</p>
       {sublabel ? (
-        <p className="mt-1 text-xs text-gray-500">{sublabel}</p>
+        <p className="mt-1 text-[10px] text-gray-500 whitespace-nowrap">
+         {sublabel}
+        </p>
       ) : null}
     </div>
   );
@@ -241,7 +243,7 @@ setGroceryPreview(
         icon="🍽️"
         label="Meals"
         value={todayLogCount}
-        sublabel="logged today"
+        sublabel="today"
       />
     </div>
 
@@ -416,7 +418,7 @@ setGroceryPreview(
             </button>
           </div>
         </DashboardCard>
-        
+
         <DashboardCard title="Current Targets">
           {current?.inputs && (
             <p className="mb-2 text-sm text-gray-300">
