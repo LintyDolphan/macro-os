@@ -20,11 +20,19 @@ import {
   mergeImportedRecipe,
 } from "../lib/recipes";
 
+
+
 type SelectedMeal = {
   recipe: Recipe;
   servings: number;
 };
+type MealSlotKey = "breakfast" | "lunch" | "dinner";
 
+type MealSlot = {
+  recipe: Recipe | null;
+  servings: number;
+  logged: boolean;
+};
 const CATEGORY_LABELS: Record<GroceryCategory, string> = {
   produce: "Produce",
   dairy: "Dairy",
@@ -35,13 +43,108 @@ const CATEGORY_LABELS: Record<GroceryCategory, string> = {
   other: "Other",
 };
 
+const [mealSlots, setMealSlots] = useState<Record<MealSlotKey, MealSlot>>({
+  breakfast: { recipe: null, servings: 1, logged: false },
+  lunch: { recipe: null, servings: 1, logged: false },
+  dinner: { recipe: null, servings: 1, logged: false },
+});
+type SnackSlot = {
+  id: string;
+  recipe: Recipe | null;
+  servings: number;
+  logged: boolean;
+};
+
+const [snackSlots, setSnackSlots] = useState<SnackSlot[]>([
+  { id: crypto.randomUUID(), recipe: null, servings: 1, logged: false },
+]);
+
 function emptyIngredient(): Ingredient {
   return { name: "", qty: "", category: "produce" };
 }
+function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
+  setMealSlots((prev) => ({
+    ...prev,
+    [slot]: {
+      ...prev[slot],
+      recipe,
+      logged: false,
+    },
+  }));
+}
+function clearMealSlot(slot: MealSlotKey) {
+  setMealSlots((prev) => ({
+    ...prev,
+    [slot]: {
+      recipe: null,
+      servings: 1,
+      logged: false,
+    },
+  }));
+}
+function markMealSlotLogged(slot: MealSlotKey) {
+  setMealSlots((prev) => ({
+    ...prev,
+    [slot]: {
+      ...prev[slot],
+      logged: true,
+    },
+  }));
+}
+function setSnackRecipe(id: string, recipe: Recipe) {
+  setSnackSlots((prev) =>
+    prev.map((snack) =>
+      snack.id === id
+        ? { ...snack, recipe, logged: false }
+        : snack
+    )
+  );
+}
+function clearSnack(id: string) {
+  setSnackSlots((prev) =>
+    prev.map((snack) =>
+      snack.id === id
+        ? { ...snack, recipe: null, servings: 1, logged: false }
+        : snack
+    )
+  );
+}
+function markSnackLogged(id: string) {
+  setSnackSlots((prev) =>
+    prev.map((snack) =>
+      snack.id === id ? { ...snack, logged: true } : snack
+    )
+  );
+}
+function addSnackSlot() {
+  setSnackSlots((prev) => [
+    ...prev,
+    { id: crypto.randomUUID(), recipe: null, servings: 1, logged: false },
+  ]);
+}
 
+
+function MealActionButton({
+  children,
+  onClick,
+  disabled = false,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-xl bg-gray-700 px-3 py-2 text-sm font-semibold hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
 export default function MealsPage() {
-  const [tab, setTab] = useState<"pick" | "mine">("pick");
-
   const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
   const [grocery, setGrocery] = useState<GroceryItem[]>([]);
   const [selected, setSelected] = useState<SelectedMeal[]>([]);
@@ -55,9 +158,31 @@ export default function MealsPage() {
   const [recipeShareCode, setRecipeShareCode] = useState("");
   const [recipeShareMsg, setRecipeShareMsg] = useState<string | null>(null);
   const [recipeShareErr, setRecipeShareErr] = useState<string | null>(null);
+  const [tab, setTab] = useState<"planner" | "pick">("planner");
 
+const [activeSlot, setActiveSlot] = useState<{
+  type: "meal" | "snack";
+  key: MealSlotKey | string | null;
+} | null>(null);
+function chooseMealForSlot(slot: MealSlotKey) {
+  setActiveSlot({ type: "meal", key: slot });
+  setTab("pick");
+}
+function chooseMealForSnack(id: string) {
+  setActiveSlot({ type: "snack", key: id });
+  setTab("pick");
+}
+function assignRecipeToActiveSlot(recipe: Recipe) {
+  if (!activeSlot || !activeSlot.key) return;
 
+  if (activeSlot.type === "meal") {
+    setMealSlotRecipe(activeSlot.key as MealSlotKey, recipe);
+  } else {
+    setSnackRecipe(activeSlot.key as string, recipe);
+  }
 
+  setTab("planner" as any); // temporary if you want to leave pick mode
+}
   // Create recipe form state
   const [recipeName, setRecipeName] = useState("");
   const [ingredients, setIngredients] = useState<Ingredient[]>([emptyIngredient()]);
@@ -269,7 +394,12 @@ function onImportRecipe() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Meals</h1>
         </div>
-
+<div className="rounded-2xl bg-gray-800 p-4 shadow-lg mb-4">
+  <h2 className="text-lg font-semibold">Today’s Macro Progress</h2>
+  <p className="mt-2 text-sm text-gray-400">
+    Dashboard-style macro summary will live here.
+  </p>
+</div>
         {/* Tabs */}
         <div className="flex gap-2 mb-4">
           <button
@@ -283,9 +413,9 @@ function onImportRecipe() {
             Pick Meals
           </button>
           <button
-            onClick={() => setTab("mine")}
+            onClick={() => setTab("planner")}
             className={`flex-1 py-2 rounded font-semibold border ${
-              tab === "mine"
+              tab === "planner"
                 ? "bg-gray-800 border-gray-700"
                 : "bg-gray-900 border-gray-800 text-gray-300"
             }`}
@@ -293,6 +423,138 @@ function onImportRecipe() {
             Make Recipe
           </button>
         </div>
+<div className="space-y-4">
+  {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
+    const slot = mealSlots[slotKey];
+    const recipe = slot.recipe;
+    const isLogged = slot.logged;
+
+    return (
+      <div
+        key={slotKey}
+        className={`rounded-2xl border p-4 shadow-sm ${
+          isLogged
+            ? "border-emerald-500/30 bg-emerald-500/10"
+            : "border-gray-700 bg-gray-800"
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold capitalize">{slotKey}</h3>
+          {isLogged && (
+            <span className="text-xs font-medium text-emerald-300">
+              Logged
+            </span>
+          )}
+        </div>
+
+        {recipe ? (
+          <div className="mt-3 space-y-2">
+            <div className="rounded-xl bg-gray-900 p-3">
+              <div className="text-sm font-semibold text-white">
+                {recipe.name}
+              </div>
+              <div className="mt-1 text-xs text-gray-400">
+                {recipe.totalMacros.calories} kcal total • P {recipe.totalMacros.protein} • C{" "}
+                {recipe.totalMacros.carbs} • F {recipe.totalMacros.fat}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MealActionButton onClick={() => chooseMealForSlot(slotKey)}>
+                Choose Meal
+              </MealActionButton>
+
+              <MealActionButton>
+                View Steps
+              </MealActionButton>
+
+              <MealActionButton onClick={() => markMealSlotLogged(slotKey)}>
+                Log Meal
+              </MealActionButton>
+
+              <MealActionButton onClick={() => clearMealSlot(slotKey)}>
+                Clear
+              </MealActionButton>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 space-y-3">
+            <div className="rounded-xl bg-gray-900 p-3 text-sm text-gray-400">
+              No meal selected yet.
+            </div>
+
+            <MealActionButton onClick={() => chooseMealForSlot(slotKey)}>
+              Choose Meal
+            </MealActionButton>
+          </div>
+        )}
+      </div>
+    );
+  })}
+</div>
+<div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+  <div className="flex items-center justify-between">
+    <h3 className="text-lg font-semibold">Additional Snacks</h3>
+    <MealActionButton onClick={addSnackSlot}>+ Add Snack</MealActionButton>
+  </div>
+
+  <div className="mt-4 space-y-3">
+    {snackSlots.map((snack, idx) => (
+      <div
+        key={snack.id}
+        className={`rounded-xl border p-3 ${
+          snack.logged
+            ? "border-emerald-500/30 bg-emerald-500/10"
+            : "border-gray-700 bg-gray-900"
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">Snack {idx + 1}</div>
+          {snack.logged && (
+            <span className="text-xs font-medium text-emerald-300">
+              Logged
+            </span>
+          )}
+        </div>
+
+        {snack.recipe ? (
+          <>
+            <div className="mt-2 text-sm text-white">{snack.recipe.name}</div>
+            <div className="mt-1 text-xs text-gray-400">
+              {snack.recipe.totalMacros.calories} kcal total • P{" "}
+              {snack.recipe.totalMacros.protein} • C{" "}
+              {snack.recipe.totalMacros.carbs} • F {snack.recipe.totalMacros.fat}
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MealActionButton onClick={() => chooseMealForSnack(snack.id)}>
+                Choose Snack
+              </MealActionButton>
+
+              <MealActionButton>
+                View Steps
+              </MealActionButton>
+
+              <MealActionButton onClick={() => markSnackLogged(snack.id)}>
+                Log Snack
+              </MealActionButton>
+
+              <MealActionButton onClick={() => clearSnack(snack.id)}>
+                Clear
+              </MealActionButton>
+            </div>
+          </>
+        ) : (
+          <div className="mt-3">
+            <MealActionButton onClick={() => chooseMealForSnack(snack.id)}>
+              Choose Snack
+            </MealActionButton>
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+</div>
 <div className="mb-4 rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
   <h2 className="text-lg font-semibold">Share Recipe</h2>
   <p className="mt-1 text-sm text-gray-300">
