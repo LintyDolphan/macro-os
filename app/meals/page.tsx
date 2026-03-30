@@ -14,22 +14,17 @@ import {
   type Recipe,
 } from "../lib/recipes";
 import { addLogEntry } from "../lib/macroLog";
+import {
+  loadMealPlannerState,
+  saveMealPlannerState,
+  getDefaultMealSlots,
+  getDefaultSnackSlots,
+  type MealSlot,
+  type MealSlotKey,
+  type SnackSlot,
+} from "../lib/plannerStorage";
 
 type PlannerTab = "planner" | "recipes" | "create";
-type MealSlotKey = "breakfast" | "lunch" | "dinner";
-
-type MealSlot = {
-  recipe: Recipe | null;
-  servings: number;
-  logged: boolean;
-};
-
-type SnackSlot = {
-  id: string;
-  recipe: Recipe | null;
-  servings: number;
-  logged: boolean;
-};
 
 type ActiveSlot =
   | { type: "meal"; key: MealSlotKey }
@@ -159,15 +154,13 @@ export default function MealsPage() {
   const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
   const [search, setSearch] = useState("");
 
-  const [mealSlots, setMealSlots] = useState<Record<MealSlotKey, MealSlot>>({
-    breakfast: { recipe: null, servings: 1, logged: false },
-    lunch: { recipe: null, servings: 1, logged: false },
-    dinner: { recipe: null, servings: 1, logged: false },
-  });
+const [mealSlots, setMealSlots] = useState<Record<MealSlotKey, MealSlot>>(
+  getDefaultMealSlots()
+);
 
-  const [snackSlots, setSnackSlots] = useState<SnackSlot[]>([
-    { id: crypto.randomUUID(), recipe: null, servings: 1, logged: false },
-  ]);
+const [snackSlots, setSnackSlots] = useState<SnackSlot[]>(
+  getDefaultSnackSlots()
+);
 
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>(null);
 
@@ -190,6 +183,14 @@ export default function MealsPage() {
   useEffect(() => {
     setMyRecipes(loadRecipes());
   }, []);
+  useEffect(() => {
+  const saved = loadMealPlannerState();
+  setMealSlots(saved.mealSlots);
+  setSnackSlots(saved.snackSlots);
+}, []);
+useEffect(() => {
+  saveMealPlannerState(mealSlots, snackSlots);
+}, [mealSlots, snackSlots]);
 
   const allRecipes = useMemo(() => [...TEMPLATE_RECIPES, ...myRecipes], [myRecipes]);
 
