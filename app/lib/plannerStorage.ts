@@ -23,6 +23,47 @@ export type PlannerDayState = {
 
 export type PlannerStateByDay = Record<PlannerDayKey, PlannerDayState>;
 
+type StoredPlannerState = {
+  date: string;
+  plannerByDay: PlannerStateByDay;
+};
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dayDiff(savedDate: string, currentDate: string) {
+  const saved = new Date(savedDate + "T00:00:00");
+  const current = new Date(currentDate + "T00:00:00");
+  const ms = current.getTime() - saved.getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function resetLoggedFlags(day: PlannerDayState): PlannerDayState {
+  return {
+    mealSlots: {
+      breakfast: { ...day.mealSlots.breakfast, logged: false },
+      lunch: { ...day.mealSlots.lunch, logged: false },
+      dinner: { ...day.mealSlots.dinner, logged: false },
+    },
+    snackSlots: day.snackSlots.map((snack) => ({
+      ...snack,
+      logged: false,
+    })),
+  };
+}
+
+function shiftPlannerForwardOnce(plannerByDay: PlannerStateByDay): PlannerStateByDay {
+  return {
+    today: resetLoggedFlags(plannerByDay.tomorrow),
+    tomorrow: resetLoggedFlags(plannerByDay.day3),
+    day3: {
+      mealSlots: getDefaultMealSlots(),
+      snackSlots: getDefaultSnackSlots(),
+    },
+  };
+}
+
 const STORAGE_KEY = "meal-planner-state";
 
 export function getDefaultMealSlots(): Record<MealSlotKey, MealSlot> {
@@ -60,44 +101,41 @@ function createDefaultPlannerByDay(): PlannerStateByDay {
     },
   };
 }
-
 export function loadMealPlannerState(): PlannerStateByDay {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createDefaultPlannerByDay();
 
-    const parsed = JSON.parse(raw) as Partial<PlannerStateByDay>;
+    const parsed = JSON.parse(raw) as Partial<StoredPlannerState>;
+    const currentDate = todayKey();
 
-    return {
-      today: {
-        mealSlots: parsed.today?.mealSlots ?? getDefaultMealSlots(),
-        snackSlots:
-          parsed.today?.snackSlots && parsed.today.snackSlots.length > 0
-            ? parsed.today.snackSlots
-            : getDefaultSnackSlots(),
-      },
-      tomorrow: {
-        mealSlots: parsed.tomorrow?.mealSlots ?? getDefaultMealSlots(),
-        snackSlots:
-          parsed.tomorrow?.snackSlots && parsed.tomorrow.snackSlots.length > 0
-            ? parsed.tomorrow.snackSlots
-            : getDefaultSnackSlots(),
-      },
-      day3: {
-        mealSlots: parsed.day3?.mealSlots ?? getDefaultMealSlots(),
-        snackSlots:
-          parsed.day3?.snackSlots && parsed.day3.snackSlots.length > 0
-            ? parsed.day3.snackSlots
-            : getDefaultSnackSlots(),
-      },
-    };
+    if (!parsed.date || !parsed.plannerByDay) {
+      return createDefaultPlannerByDay();
+    }
+
+    const diff = dayDiff(parsed.date, currentDate);
+
+    if (diff <= 0) {
+      return parsed.plannerByDay;
+    }
+
+    if (diff === 1) {
+      return shiftPlannerForwardOnce(parsed.plannerByDay);
+    }
+
+    return createDefaultPlannerByDay();
   } catch {
     return createDefaultPlannerByDay();
   }
 }
 
 export function saveMealPlannerState(plannerByDay: PlannerStateByDay) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(plannerByDay));
+  const payload: StoredPlannerState = {
+    date: todayKey(),
+    plannerByDay,
+  };
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
 
 export function clearMealPlannerState() {
