@@ -81,14 +81,14 @@ router.push("/");
         <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
   <label className="block text-sm text-gray-300 mb-1">Sex</label>
-  <select
-    value={sex}
-    onChange={(e) => setSex(e.target.value as Sex)}
-    className="w-full p-3 rounded bg-gray-900 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
-  >
-    <option value="male">Male</option>
-    <option value="female">Female</option>
-  </select>
+<select
+  value={sex}
+  onChange={(e) => setSex(e.target.value as Sex)}
+  className="w-full p-3 rounded bg-gray-900 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
+>
+  <option value="male">male</option>
+  <option value="female">female</option>
+</select>
 </div>
 <div>
   <label className="block text-sm text-gray-300 mb-1">Age</label>
