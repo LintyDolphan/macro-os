@@ -23,6 +23,9 @@ import {
   type MealSlotKey,
   type SnackSlot,
 } from "../lib/plannerStorage";
+import { loadGroceryList, saveGroceryList, type GroceryItem } from "../lib/grocery";
+import { addIngredientsToGrocery } from "../lib/mealplan";
+
 
 type PlannerTab = "planner" | "recipes" | "create";
 
@@ -163,7 +166,8 @@ export default function MealsPage() {
 const [mealSlots, setMealSlots] = useState<Record<MealSlotKey, MealSlot>>(
   getDefaultMealSlots()
 );
-
+const [plannerMsg, setPlannerMsg] = useState<string | null>(null);
+const [plannerErr, setPlannerErr] = useState<string | null>(null);
 const [snackSlots, setSnackSlots] = useState<SnackSlot[]>(
   getDefaultSnackSlots()
 );
@@ -223,7 +227,62 @@ useEffect(() => {
       },
     }));
   }
+function collectPlannerIngredients() {
+  const collected: Ingredient[] = [];
 
+  (["breakfast", "lunch", "dinner"] as MealSlotKey[]).forEach((slotKey) => {
+    const slot = mealSlots[slotKey];
+    if (!slot.recipe) return;
+
+    const factor = slot.servings / Math.max(slot.recipe.defaultServings || 1, 1);
+
+    slot.recipe.ingredients.forEach((ing) => {
+      collected.push({
+        ...ing,
+        qty: scaleQty(ing.qty, factor),
+      });
+    });
+  });
+
+  snackSlots.forEach((snack) => {
+    if (!snack.recipe) return;
+
+    const factor = snack.servings / Math.max(snack.recipe.defaultServings || 1, 1);
+
+    snack.recipe.ingredients.forEach((ing) => {
+      collected.push({
+        ...ing,
+        qty: scaleQty(ing.qty, factor),
+      });
+    });
+  });
+
+  return collected;
+}
+function generateGroceryFromPlanner() {
+  try {
+    const ingredients = collectPlannerIngredients();
+
+    if (ingredients.length === 0) {
+      setPlannerErr("No meals selected to generate groceries.");
+      setPlannerMsg(null);
+      return;
+    }
+
+    const currentList = loadGroceryList();
+    const next = addIngredientsToGrocery(currentList, ingredients);
+
+    saveGroceryList(next);
+
+    setPlannerErr(null);
+    setPlannerMsg(`Added ${ingredients.length} ingredient lines to grocery ✅`);
+
+    window.setTimeout(() => setPlannerMsg(null), 1800);
+  } catch {
+    setPlannerMsg(null);
+    setPlannerErr("Couldn’t generate grocery list.");
+  }
+}
   function clearMealSlot(slot: MealSlotKey) {
     setMealSlots((prev) => ({
       ...prev,
@@ -588,7 +647,46 @@ useEffect(() => {
                 Choose meals for each slot, view steps, and log them as you go.
               </p>
             </div>
+<div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <h2 className="text-lg font-semibold text-white">Planner Actions</h2>
+      <p className="mt-1 text-sm text-gray-400">
+        Generate your grocery list from the meals currently planned.
+      </p>
+    </div>
+  </div>
 
+  {plannerMsg && (
+    <div className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+      {plannerMsg}
+    </div>
+  )}
+
+  {plannerErr && (
+    <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+      {plannerErr}
+    </div>
+  )}
+
+  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <button
+      type="button"
+      onClick={generateGroceryFromPlanner}
+      className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
+    >
+      Generate Grocery List
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setTab("recipes")}
+      className="rounded-xl bg-gray-700 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-600"
+    >
+      Choose More Meals
+    </button>
+  </div>
+</div>
             {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
               const slot = mealSlots[slotKey];
               const recipe = slot.recipe;
