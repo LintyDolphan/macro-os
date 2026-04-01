@@ -141,12 +141,18 @@ function MealActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="rounded-xl bg-gray-700 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded-xl bg-gray-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
   );
 }
+
+function formatMacroPreview(recipe: Recipe, servings: number) {
+  const macros = macrosForRecipe(recipe, servings);
+  return `+${macros.calories} kcal • +${macros.protein}P • +${macros.carbs}C • +${macros.fat}F`;
+}
+
 
 export default function MealsPage() {
   const [tab, setTab] = useState<PlannerTab>("planner");
@@ -600,33 +606,43 @@ useEffect(() => {
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold capitalize text-white">{slotKey}</h3>
                     {logged && (
-                      <span className="text-xs font-medium text-emerald-300">Logged</span>
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-300">
+                      Logged
+                      </span>
                     )}
                   </div>
 
                   {recipe ? (
                     <div className="mt-3 space-y-3">
                       <div className="rounded-xl bg-gray-900 p-3">
-                        <div className="text-sm font-semibold text-white">{recipe.name}</div>
-                        <div className="mt-1 text-xs text-gray-400">
-                          {formatMacroLine(recipe, slot.servings)}
-                        </div>
-                      </div>
+  <div className="text-sm font-semibold text-white leading-snug">
+    {recipe.name}
+  </div>
+  <div className="mt-1 text-xs text-gray-400">
+    {formatMacroLine(recipe, slot.servings)}
+  </div>
+  <div className="mt-2 rounded-lg bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300">
+    {formatMacroPreview(recipe, slot.servings)}
+  </div>
+</div>
 
-                      <div className="flex items-center gap-2">
-                        <MealActionButton
-                          onClick={() => updateMealSlotServings(slotKey, -1)}
-                          disabled={slot.servings <= 1}
-                        >
-                          –
-                        </MealActionButton>
-                        <div className="min-w-[60px] text-center text-sm font-semibold text-white">
-                          {slot.servings}x
-                        </div>
-                        <MealActionButton onClick={() => updateMealSlotServings(slotKey, 1)}>
-                          +
-                        </MealActionButton>
-                      </div>
+                      <div className="flex items-center justify-between rounded-xl bg-gray-900 px-3 py-2">
+  <span className="text-xs uppercase tracking-wide text-gray-400">Servings</span>
+  <div className="flex items-center gap-2">
+    <MealActionButton
+      onClick={() => updateMealSlotServings(slotKey, -1)}
+      disabled={slot.servings <= 1}
+    >
+      –
+    </MealActionButton>
+    <div className="min-w-[48px] text-center text-sm font-semibold text-white">
+      {slot.servings}x
+    </div>
+    <MealActionButton onClick={() => updateMealSlotServings(slotKey, 1)}>
+      +
+    </MealActionButton>
+  </div>
+</div>
 
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <MealActionButton onClick={() => chooseMealForSlot(slotKey)}>
@@ -679,7 +695,9 @@ useEffect(() => {
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-semibold text-white">Snack {idx + 1}</div>
                       {snack.logged && (
-                        <span className="text-xs font-medium text-emerald-300">Logged</span>
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-300">
+  Logged
+</span>
                       )}
                     </div>
 
@@ -691,22 +709,27 @@ useEffect(() => {
                         <div className="mt-1 text-xs text-gray-400">
                           {formatMacroLine(snack.recipe, snack.servings)}
                         </div>
-
-                        <div className="mt-3 flex items-center gap-2">
-                          <MealActionButton
-                            onClick={() => updateSnackServings(snack.id, -1)}
-                            disabled={snack.servings <= 1}
-                          >
-                            –
-                          </MealActionButton>
-                          <div className="min-w-[60px] text-center text-sm font-semibold text-white">
-                            {snack.servings}x
-                          </div>
-                          <MealActionButton onClick={() => updateSnackServings(snack.id, 1)}>
-                            +
-                          </MealActionButton>
+                        <div className="mt-2 text-xs font-medium text-emerald-300">
+                          {formatMacroPreview(snack.recipe, snack.servings)}
                         </div>
 
+                        <div className="mt-3 flex items-center justify-between rounded-xl bg-gray-800 px-3 py-2">
+  <span className="text-xs uppercase tracking-wide text-gray-400">Servings</span>
+  <div className="flex items-center gap-2">
+    <MealActionButton
+      onClick={() => updateSnackServings(snack.id, -1)}
+      disabled={snack.servings <= 1}
+    >
+      –
+    </MealActionButton>
+    <div className="min-w-[48px] text-center text-sm font-semibold text-white">
+      {snack.servings}x
+    </div>
+    <MealActionButton onClick={() => updateSnackServings(snack.id, 1)}>
+      +
+    </MealActionButton>
+  </div>
+</div>
                         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                           <MealActionButton onClick={() => chooseMealForSnack(snack.id)}>
                             Choose Snack
