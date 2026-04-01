@@ -1,6 +1,7 @@
 import type { Recipe } from "./recipes";
 
 export type MealSlotKey = "breakfast" | "lunch" | "dinner";
+export type PlannerDayKey = "today" | "tomorrow" | "day3";
 
 export type MealSlot = {
   recipe: Recipe | null;
@@ -15,14 +16,13 @@ export type SnackSlot = {
   logged: boolean;
 };
 
-type MealPlannerState = {
-  date: string;
+export type PlannerDayState = {
   mealSlots: Record<MealSlotKey, MealSlot>;
   snackSlots: SnackSlot[];
 };
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
+
+export type PlannerStateByDay = Record<PlannerDayKey, PlannerDayState>;
+
 const STORAGE_KEY = "meal-planner-state";
 
 export function getDefaultMealSlots(): Record<MealSlotKey, MealSlot> {
@@ -44,57 +44,62 @@ export function getDefaultSnackSlots(): SnackSlot[] {
   ];
 }
 
-export function loadMealPlannerState(): MealPlannerState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-
-    if (!raw) {
-      return {
-        date: todayKey(),
-        mealSlots: getDefaultMealSlots(),
-        snackSlots: getDefaultSnackSlots(),
-      };
-    }
-
-    const parsed = JSON.parse(raw) as Partial<MealPlannerState>;
-
-    if (!parsed.date || parsed.date !== todayKey()) {
-      return {
-        date: todayKey(),
-        mealSlots: getDefaultMealSlots(),
-        snackSlots: getDefaultSnackSlots(),
-      };
-    }
-
-    return {
-      date: parsed.date,
-      mealSlots: parsed.mealSlots ?? getDefaultMealSlots(),
-      snackSlots:
-        parsed.snackSlots && parsed.snackSlots.length > 0
-          ? parsed.snackSlots
-          : getDefaultSnackSlots(),
-    };
-  } catch {
-    return {
-      date: todayKey(),
+function createDefaultPlannerByDay(): PlannerStateByDay {
+  return {
+    today: {
       mealSlots: getDefaultMealSlots(),
       snackSlots: getDefaultSnackSlots(),
+    },
+    tomorrow: {
+      mealSlots: getDefaultMealSlots(),
+      snackSlots: getDefaultSnackSlots(),
+    },
+    day3: {
+      mealSlots: getDefaultMealSlots(),
+      snackSlots: getDefaultSnackSlots(),
+    },
+  };
+}
+
+export function loadMealPlannerState(): PlannerStateByDay {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return createDefaultPlannerByDay();
+
+    const parsed = JSON.parse(raw) as Partial<PlannerStateByDay>;
+
+    return {
+      today: {
+        mealSlots: parsed.today?.mealSlots ?? getDefaultMealSlots(),
+        snackSlots:
+          parsed.today?.snackSlots && parsed.today.snackSlots.length > 0
+            ? parsed.today.snackSlots
+            : getDefaultSnackSlots(),
+      },
+      tomorrow: {
+        mealSlots: parsed.tomorrow?.mealSlots ?? getDefaultMealSlots(),
+        snackSlots:
+          parsed.tomorrow?.snackSlots && parsed.tomorrow.snackSlots.length > 0
+            ? parsed.tomorrow.snackSlots
+            : getDefaultSnackSlots(),
+      },
+      day3: {
+        mealSlots: parsed.day3?.mealSlots ?? getDefaultMealSlots(),
+        snackSlots:
+          parsed.day3?.snackSlots && parsed.day3.snackSlots.length > 0
+            ? parsed.day3.snackSlots
+            : getDefaultSnackSlots(),
+      },
     };
+  } catch {
+    return createDefaultPlannerByDay();
   }
 }
 
-export function saveMealPlannerState(
-  mealSlots: Record<MealSlotKey, MealSlot>,
-  snackSlots: SnackSlot[]
-) {
-  const payload: MealPlannerState = {
-    date: todayKey(),
-    mealSlots,
-    snackSlots,
-  };
-
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+export function saveMealPlannerState(plannerByDay: PlannerStateByDay) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(plannerByDay));
 }
+
 export function clearMealPlannerState() {
   localStorage.removeItem(STORAGE_KEY);
 }

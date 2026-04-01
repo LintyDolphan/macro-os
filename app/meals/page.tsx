@@ -17,11 +17,12 @@ import { addLogEntry } from "../lib/macroLog";
 import {
   loadMealPlannerState,
   saveMealPlannerState,
-  getDefaultMealSlots,
-  getDefaultSnackSlots,
   type MealSlot,
   type MealSlotKey,
   type SnackSlot,
+  type PlannerDayKey,
+  type PlannerDayState,
+  type PlannerStateByDay,
 } from "../lib/plannerStorage";
 import { loadGroceryList, saveGroceryList, type GroceryItem } from "../lib/grocery";
 import { addIngredientsToGrocery } from "../lib/mealplan";
@@ -44,6 +45,8 @@ const CATEGORY_OPTIONS: Ingredient["category"][] = [
   "other",
 ];
 
+
+
 const CATEGORY_LABELS: Record<Ingredient["category"], string> = {
   produce: "Produce",
   dairy: "Dairy",
@@ -53,6 +56,20 @@ const CATEGORY_LABELS: Record<Ingredient["category"], string> = {
   snacks: "Snacks",
   other: "Other",
 };
+
+function createDefaultMealSlots(): Record<MealSlotKey, MealSlot> {
+  return {
+    breakfast: { recipe: null, servings: 1, logged: false },
+    lunch: { recipe: null, servings: 1, logged: false },
+    dinner: { recipe: null, servings: 1, logged: false },
+  };
+}
+
+function createDefaultSnackSlots(): SnackSlot[] {
+  return [
+    { id: crypto.randomUUID(), recipe: null, servings: 1, logged: false },
+  ];
+}
 
 function emptyIngredient(): Ingredient {
   return { name: "", qty: "", category: "produce" };
@@ -163,15 +180,29 @@ export default function MealsPage() {
   const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
   const [search, setSearch] = useState("");
 
-const [mealSlots, setMealSlots] = useState<Record<MealSlotKey, MealSlot>>(
-  getDefaultMealSlots()
-);
+
+const [selectedDay, setSelectedDay] = useState<PlannerDayKey>("today");
+
+const [plannerByDay, setPlannerByDay] = useState<PlannerStateByDay>({
+  today: {
+    mealSlots: createDefaultMealSlots(),
+    snackSlots: createDefaultSnackSlots(),
+  },
+  tomorrow: {
+    mealSlots: createDefaultMealSlots(),
+    snackSlots: createDefaultSnackSlots(),
+  },
+  day3: {
+    mealSlots: createDefaultMealSlots(),
+    snackSlots: createDefaultSnackSlots(),
+  },
+});
+
+const mealSlots = plannerByDay[selectedDay].mealSlots;
+const snackSlots = plannerByDay[selectedDay].snackSlots;
+
 const [plannerMsg, setPlannerMsg] = useState<string | null>(null);
 const [plannerErr, setPlannerErr] = useState<string | null>(null);
-const [snackSlots, setSnackSlots] = useState<SnackSlot[]>(
-  getDefaultSnackSlots()
-);
-
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>(null);
 
   const [viewerRecipe, setViewerRecipe] = useState<Recipe | null>(null);
@@ -193,14 +224,18 @@ const [snackSlots, setSnackSlots] = useState<SnackSlot[]>(
   useEffect(() => {
     setMyRecipes(loadRecipes());
   }, []);
-  useEffect(() => {
-  const saved = loadMealPlannerState();
-  setMealSlots(saved.mealSlots);
-  setSnackSlots(saved.snackSlots);
-}, []);
 useEffect(() => {
-  saveMealPlannerState(mealSlots, snackSlots);
-}, [mealSlots, snackSlots]);
+  setMyRecipes(loadRecipes());
+
+  const saved = loadMealPlannerState();
+  if (saved) {
+    setPlannerByDay(saved);
+  }
+}, []);
+
+useEffect(() => {
+  saveMealPlannerState(plannerByDay);
+}, [plannerByDay]);
 
   const allRecipes = useMemo(() => [...TEMPLATE_RECIPES, ...myRecipes], [myRecipes]);
 
@@ -218,15 +253,25 @@ useEffect(() => {
   }, [allRecipes, search]);
 
   function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
-    setMealSlots((prev) => ({
-      ...prev,
-      [slot]: {
-        recipe,
-        servings: prev[slot].servings || recipe.defaultServings || 1,
-        logged: false,
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      mealSlots: {
+        ...prev[selectedDay].mealSlots,
+        [slot]: {
+          recipe,
+          servings:
+            prev[selectedDay].mealSlots[slot].servings ||
+            recipe.defaultServings ||
+            1,
+          logged: false,
+        },
       },
-    }));
-  }
+    },
+  }));
+}
+  
 function collectPlannerIngredients() {
   const collected: Ingredient[] = [];
 
@@ -284,44 +329,67 @@ function generateGroceryFromPlanner() {
   }
 }
   function clearMealSlot(slot: MealSlotKey) {
-    setMealSlots((prev) => ({
-      ...prev,
-      [slot]: { recipe: null, servings: 1, logged: false },
-    }));
-  }
-
-  function markMealSlotLogged(slot: MealSlotKey) {
-    const meal = mealSlots[slot];
-    if (!meal.recipe || meal.logged) return;
-
-    const macros = macrosForRecipe(meal.recipe, meal.servings);
-    const name =
-      meal.servings > 1 ? `${meal.recipe.name} x${meal.servings}` : meal.recipe.name;
-
-    addLogEntry(name, macros);
-
-    setMealSlots((prev) => ({
-      ...prev,
-      [slot]: {
-        ...prev[slot],
-        logged: true,
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      mealSlots: {
+        ...prev[selectedDay].mealSlots,
+        [slot]: { recipe: null, servings: 1, logged: false },
       },
-    }));
-  }
+    },
+  }));
+}
+
+ function markMealSlotLogged(slot: MealSlotKey) {
+  const meal = plannerByDay[selectedDay].mealSlots[slot];
+  if (!meal.recipe || meal.logged) return;
+
+  const macros = macrosForRecipe(meal.recipe, meal.servings);
+  const name =
+    meal.servings > 1 ? `${meal.recipe.name} x${meal.servings}` : meal.recipe.name;
+
+  addLogEntry(name, macros);
+
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      mealSlots: {
+        ...prev[selectedDay].mealSlots,
+        [slot]: {
+          ...prev[selectedDay].mealSlots[slot],
+          logged: true,
+        },
+      },
+    },
+  }));
+}
 
   function updateMealSlotServings(slot: MealSlotKey, delta: number) {
-    setMealSlots((prev) => ({
-      ...prev,
-      [slot]: {
-        ...prev[slot],
-        servings: Math.max(1, prev[slot].servings + delta),
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      mealSlots: {
+        ...prev[selectedDay].mealSlots,
+        [slot]: {
+          ...prev[selectedDay].mealSlots[slot],
+          servings: Math.max(
+            1,
+            prev[selectedDay].mealSlots[slot].servings + delta
+          ),
+        },
       },
-    }));
-  }
-
+    },
+  }));
+}
   function setSnackRecipe(id: string, recipe: Recipe) {
-    setSnackSlots((prev) =>
-      prev.map((snack) =>
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      snackSlots: prev[selectedDay].snackSlots.map((snack) =>
         snack.id === id
           ? {
               ...snack,
@@ -330,53 +398,133 @@ function generateGroceryFromPlanner() {
               logged: false,
             }
           : snack
-      )
-    );
-  }
+      ),
+    },
+  }));
+}
 
-  function clearSnack(id: string) {
-    setSnackSlots((prev) =>
-      prev.map((snack) =>
+ function clearSnack(id: string) {
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      snackSlots: prev[selectedDay].snackSlots.map((snack) =>
         snack.id === id
           ? { ...snack, recipe: null, servings: 1, logged: false }
           : snack
-      )
-    );
-  }
+      ),
+    },
+  }));
+}
 
   function markSnackLogged(id: string) {
-    const snack = snackSlots.find((s) => s.id === id);
-    if (!snack?.recipe || snack.logged) return;
+  const snack = plannerByDay[selectedDay].snackSlots.find((s) => s.id === id);
+  if (!snack?.recipe || snack.logged) return;
 
-    const macros = macrosForRecipe(snack.recipe, snack.servings);
-    const name =
-      snack.servings > 1 ? `${snack.recipe.name} x${snack.servings}` : snack.recipe.name;
+  const macros = macrosForRecipe(snack.recipe, snack.servings);
+  const name =
+    snack.servings > 1 ? `${snack.recipe.name} x${snack.servings}` : snack.recipe.name;
 
-    addLogEntry(name, macros);
+  addLogEntry(name, macros);
 
-    setSnackSlots((prev) =>
-      prev.map((item) =>
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      snackSlots: prev[selectedDay].snackSlots.map((item) =>
         item.id === id ? { ...item, logged: true } : item
-      )
-    );
-  }
+      ),
+    },
+  }));
+}
 
-  function updateSnackServings(id: string, delta: number) {
-    setSnackSlots((prev) =>
-      prev.map((snack) =>
+function updateSnackServings(id: string, delta: number) {
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      snackSlots: prev[selectedDay].snackSlots.map((snack) =>
         snack.id === id
           ? { ...snack, servings: Math.max(1, snack.servings + delta) }
           : snack
-      )
-    );
-  }
+      ),
+    },
+  }));
+}
 
-  function addSnackSlot() {
-    setSnackSlots((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), recipe: null, servings: 1, logged: false },
-    ]);
+ function addSnackSlot() {
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      snackSlots: [
+        ...prev[selectedDay].snackSlots,
+        { id: crypto.randomUUID(), recipe: null, servings: 1, logged: false },
+      ],
+    },
+  }));
+}
+
+function collectAllPlannedIngredients() {
+  const collected: Ingredient[] = [];
+
+  (Object.keys(plannerByDay) as PlannerDayKey[]).forEach((dayKey) => {
+    const day = plannerByDay[dayKey];
+
+    (["breakfast", "lunch", "dinner"] as MealSlotKey[]).forEach((slotKey) => {
+      const slot = day.mealSlots[slotKey];
+      if (!slot.recipe) return;
+
+      const factor = slot.servings / Math.max(slot.recipe.defaultServings || 1, 1);
+
+      slot.recipe.ingredients.forEach((ing) => {
+        collected.push({
+          ...ing,
+          qty: scaleQty(ing.qty, factor),
+        });
+      });
+    });
+
+    day.snackSlots.forEach((snack) => {
+      if (!snack.recipe) return;
+
+      const factor = snack.servings / Math.max(snack.recipe.defaultServings || 1, 1);
+
+      snack.recipe.ingredients.forEach((ing) => {
+        collected.push({
+          ...ing,
+          qty: scaleQty(ing.qty, factor),
+        });
+      });
+    });
+  });
+
+  return collected;
+}
+
+function generateGroceryFromAllDays() {
+  try {
+    const ingredients = collectAllPlannedIngredients();
+
+    if (ingredients.length === 0) {
+      setPlannerErr("No planned meals found across days.");
+      setPlannerMsg(null);
+      return;
+    }
+
+    const currentList = loadGroceryList();
+    const next = addIngredientsToGrocery(currentList, ingredients);
+
+    saveGroceryList(next);
+
+    setPlannerErr(null);
+    setPlannerMsg(`Added groceries from all planned days ✅`);
+    window.setTimeout(() => setPlannerMsg(null), 1800);
+  } catch {
+    setPlannerMsg(null);
+    setPlannerErr("Couldn’t generate grocery list.");
   }
+}
 
   function chooseMealForSlot(slot: MealSlotKey) {
     setActiveSlot({ type: "meal", key: slot });
@@ -484,37 +632,43 @@ function generateGroceryFromPlanner() {
     setTab("recipes");
   }
 
-  function onDeleteRecipe(id: string) {
-    setMyRecipes((prev) => deleteRecipe(prev, id));
+function onDeleteRecipe(id: string) {
+  setMyRecipes((prev) => deleteRecipe(prev, id));
 
-    setMealSlots((prev) => ({
-      breakfast:
-        prev.breakfast.recipe?.id === id
-          ? { recipe: null, servings: 1, logged: false }
-          : prev.breakfast,
-      lunch:
-        prev.lunch.recipe?.id === id
-          ? { recipe: null, servings: 1, logged: false }
-          : prev.lunch,
-      dinner:
-        prev.dinner.recipe?.id === id
-          ? { recipe: null, servings: 1, logged: false }
-          : prev.dinner,
-    }));
+  setPlannerByDay((prev) => {
+    const next = { ...prev };
 
-    setSnackSlots((prev) =>
-      prev.map((snack) =>
-        snack.recipe?.id === id
-          ? { ...snack, recipe: null, servings: 1, logged: false }
-          : snack
-      )
-    );
+    (Object.keys(next) as PlannerDayKey[]).forEach((dayKey) => {
+      next[dayKey] = {
+        mealSlots: {
+          breakfast:
+            next[dayKey].mealSlots.breakfast.recipe?.id === id
+              ? { recipe: null, servings: 1, logged: false }
+              : next[dayKey].mealSlots.breakfast,
+          lunch:
+            next[dayKey].mealSlots.lunch.recipe?.id === id
+              ? { recipe: null, servings: 1, logged: false }
+              : next[dayKey].mealSlots.lunch,
+          dinner:
+            next[dayKey].mealSlots.dinner.recipe?.id === id
+              ? { recipe: null, servings: 1, logged: false }
+              : next[dayKey].mealSlots.dinner,
+        },
+        snackSlots: next[dayKey].snackSlots.map((snack) =>
+          snack.recipe?.id === id
+            ? { ...snack, recipe: null, servings: 1, logged: false }
+            : snack
+        ),
+      };
+    });
 
-    if (viewerRecipe?.id === id) {
-      closeViewer();
-    }
+    return next;
+  });
+
+  if (viewerRecipe?.id === id) {
+    closeViewer();
   }
-
+}
   async function onShareRecipe(recipe: Recipe) {
     try {
       const code = exportRecipeShareCode(recipe);
@@ -641,8 +795,28 @@ function generateGroceryFromPlanner() {
 
         {tab === "planner" && (
           <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+  <TabButton active={selectedDay === "today"} onClick={() => setSelectedDay("today")}>
+    Today
+  </TabButton>
+  <TabButton
+    active={selectedDay === "tomorrow"}
+    onClick={() => setSelectedDay("tomorrow")}
+  >
+    Tomorrow
+  </TabButton>
+  <TabButton active={selectedDay === "day3"} onClick={() => setSelectedDay("day3")}>
+    Day 3
+  </TabButton>
+</div>
             <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
-              <h2 className="text-lg font-semibold text-white">Today’s Meals</h2>
+              <h2 className="text-lg font-semibold text-white">
+  {selectedDay === "today"
+    ? "Today’s Meals"
+    : selectedDay === "tomorrow"
+    ? "Tomorrow’s Meals"
+    : "Day 3 Meals"}
+</h2>
               <p className="mt-1 text-sm text-gray-400">
                 Choose meals for each slot, view steps, and log them as you go.
               </p>
@@ -669,23 +843,23 @@ function generateGroceryFromPlanner() {
     </div>
   )}
 
-  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-    <button
-      type="button"
-      onClick={generateGroceryFromPlanner}
-      className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
-    >
-      Generate Grocery List
-    </button>
+ <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+  <button
+    type="button"
+    onClick={generateGroceryFromPlanner}
+    className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
+  >
+    Generate Grocery for This Day
+  </button>
 
-    <button
-      type="button"
-      onClick={() => setTab("recipes")}
-      className="rounded-xl bg-gray-700 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-600"
-    >
-      Choose More Meals
-    </button>
-  </div>
+  <button
+    type="button"
+    onClick={generateGroceryFromAllDays}
+    className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+  >
+    Generate Grocery for All Days
+  </button>
+</div>
 </div>
             {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
               const slot = mealSlots[slotKey];
