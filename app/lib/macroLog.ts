@@ -11,6 +11,13 @@ function keyForDate(dateISO: string) {
   return `macroLog:${dateISO}`;
 }
 
+export function deleteLogEntry(date: string, id: string) {
+  const existing = loadLog(date);
+  const next = existing.filter((entry) => entry.id !== id);
+  localStorage.setItem(keyForDate(date), JSON.stringify(next));
+  return next;
+}
+
 export function todayISO() {
   // YYYY-MM-DD
   return new Date().toISOString().slice(0, 10);
@@ -43,17 +50,27 @@ export function sumMacros(entries: MacroLogEntry[]): Macros {
   );
 }
 
-export function addLogEntry(name: string, macros: Macros, dateISO = todayISO()) {
-  const entries = loadLog(dateISO);
-  const next: MacroLogEntry[] = [
-    {
-      id: crypto.randomUUID(),
-      name,
-      macros,
-      createdAt: new Date().toISOString(),
-    },
-    ...entries,
-  ];
-  saveLog(next, dateISO);
-  return next;
+export function addLogEntry(
+  name: string,
+  macros: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  }
+) {
+  const date = todayISO();
+  const existing = loadLog(date);
+
+  const entry = {
+    id: crypto.randomUUID(),
+    name,
+    macros,
+    createdAt: new Date().toISOString(),
+  };
+
+  const next = [entry, ...existing];
+  localStorage.setItem(keyForDate(date), JSON.stringify(next));
+
+  return entry;
 }
