@@ -407,15 +407,22 @@ function markMealSlotLogged(slot: MealSlotKey) {
     meal.servings > 1 ? `${meal.recipe.name} x${meal.servings}` : meal.recipe.name;
 
   const entry = addLogEntry(name, macros);
-  console.log("SETTING UNDO", entry.id);
-  setLastLogUndo({
-    entryId: entry.id,
-    date: todayISO(),
-    type: "meal",
-    day: day, // <-- use local var
-    slotKey: slot,
-    label: name,
-  });
+
+console.log("UNDO TEST MEAL", {
+  entryId: entry.id,
+  name,
+  day,
+  slot,
+});
+
+setLastLogUndo({
+  entryId: entry.id,
+  date: todayISO(),
+  type: "meal",
+  day: day,
+  slotKey: slot,
+  label: name,
+});
 
   setPlannerByDay((prev) => ({
     ...prev,
