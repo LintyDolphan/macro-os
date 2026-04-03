@@ -420,7 +420,7 @@ setLastLogUndo({
   slotKey: slot,
   label: name,
 });
-setPlannerMsg(`DEBUG: setLastLogUndo ran for ${name}`);
+setPlannerMsg(`DEBUG: undo set for meal ${name}`);
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -509,7 +509,7 @@ function markSnackLogged(id: string) {
     snackId: id,
     label: name,
   });
-setPlannerMsg(`DEBUG: setLastLogUndo ran for ${name}`);
+setPlannerMsg(`DEBUG: undo set for meal ${name}`);
 
   setPlannerByDay((prev) => ({
     ...prev,
