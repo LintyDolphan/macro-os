@@ -397,7 +397,9 @@ function generateGroceryFromPlanner() {
 }
 
 function markMealSlotLogged(slot: MealSlotKey) {
-  const meal = plannerByDay[selectedDay].mealSlots[slot];
+  const day = selectedDay; // <-- ADD THIS
+
+  const meal = plannerByDay[day].mealSlots[slot];
   if (!meal.recipe || meal.logged) return;
 
   const macros = macrosForRecipe(meal.recipe, meal.servings);
@@ -410,25 +412,26 @@ function markMealSlotLogged(slot: MealSlotKey) {
     entryId: entry.id,
     date: todayISO(),
     type: "meal",
-    day: selectedDay,
+    day: day, // <-- use local var
     slotKey: slot,
     label: name,
   });
 
   setPlannerByDay((prev) => ({
     ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
+    [day]: {
+      ...prev[day],
       mealSlots: {
-        ...prev[selectedDay].mealSlots,
+        ...prev[day].mealSlots,
         [slot]: {
-          ...prev[selectedDay].mealSlots[slot],
+          ...prev[day].mealSlots[slot],
           logged: true,
         },
       },
     },
   }));
 }
+
   function updateMealSlotServings(slot: MealSlotKey, delta: number) {
   setPlannerByDay((prev) => ({
     ...prev,
@@ -481,7 +484,9 @@ function markMealSlotLogged(slot: MealSlotKey) {
 }
 
 function markSnackLogged(id: string) {
-  const snack = plannerByDay[selectedDay].snackSlots.find((s) => s.id === id);
+  const day = selectedDay; // <-- ADD THIS
+
+  const snack = plannerByDay[day].snackSlots.find((s) => s.id === id);
   if (!snack?.recipe || snack.logged) return;
 
   const macros = macrosForRecipe(snack.recipe, snack.servings);
@@ -494,21 +499,22 @@ function markSnackLogged(id: string) {
     entryId: entry.id,
     date: todayISO(),
     type: "snack",
-    day: selectedDay,
+    day: day, // <-- use local var
     snackId: id,
     label: name,
   });
 
   setPlannerByDay((prev) => ({
     ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
-      snackSlots: prev[selectedDay].snackSlots.map((item) =>
+    [day]: {
+      ...prev[day],
+      snackSlots: prev[day].snackSlots.map((item) =>
         item.id === id ? { ...item, logged: true } : item
       ),
     },
   }));
 }
+
 function updateSnackServings(id: string, delta: number) {
   setPlannerByDay((prev) => ({
     ...prev,
