@@ -420,7 +420,7 @@ setLastLogUndo({
   slotKey: slot,
   label: name,
 });
-setPlannerMsg(`DEBUG: undo set for meal ${name}`);
+
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -509,7 +509,7 @@ function markSnackLogged(id: string) {
     snackId: id,
     label: name,
   });
-setPlannerMsg(`DEBUG: undo set for meal ${name}`);
+
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -948,39 +948,7 @@ function onDeleteRecipe(id: string) {
 </p>
 
 </div>
-  {lastLogUndo && (
-  <div className="mt-3">
-    <button
-      type="button"
-      onClick={undoLastLog}
-      className="w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-700"
-    >
-      Undo Last Log
-    </button>
-  </div>
-)}
-
-<div className="mt-2 text-xs text-yellow-300">
-  DEBUG: {JSON.stringify(lastLogUndo)}
-</div>
-
-<button
-  type="button"
-  onClick={() =>
-    setLastLogUndo({
-      entryId: "test-id",
-      date: todayISO(),
-      type: "meal",
-      day: selectedDay,
-      slotKey: "breakfast",
-      label: "TEST LOG",
-    })
-  }
-  className="rounded-xl bg-purple-600 px-4 py-3 text-sm font-semibold text-white hover:bg-purple-700"
->
-  Test Undo State
-</button>
-
+  
 </div>
        {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
               const slot = mealSlots[slotKey];
