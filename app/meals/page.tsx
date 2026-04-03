@@ -407,7 +407,7 @@ function markMealSlotLogged(slot: MealSlotKey) {
     meal.servings > 1 ? `${meal.recipe.name} x${meal.servings}` : meal.recipe.name;
 
   const entry = addLogEntry(name, macros);
-
+  console.log("SETTING UNDO", entry.id);
   setLastLogUndo({
     entryId: entry.id,
     date: todayISO(),
@@ -486,6 +486,7 @@ function markMealSlotLogged(slot: MealSlotKey) {
 function markSnackLogged(id: string) {
   const day = selectedDay; // <-- ADD THIS
 
+
   const snack = plannerByDay[day].snackSlots.find((s) => s.id === id);
   if (!snack?.recipe || snack.logged) return;
 
@@ -494,7 +495,7 @@ function markSnackLogged(id: string) {
     snack.servings > 1 ? `${snack.recipe.name} x${snack.servings}` : snack.recipe.name;
 
   const entry = addLogEntry(name, macros);
-
+  console.log("SETTING UNDO", entry.id);
   setLastLogUndo({
     entryId: entry.id,
     date: todayISO(),
