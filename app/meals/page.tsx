@@ -13,7 +13,7 @@ import {
   type Ingredient,
   type Recipe,
 } from "../lib/recipes";
-import { addLogEntry } from "../lib/macroLog";
+import { addLogEntry, deleteLogEntry, todayISO } from "../lib/macroLog";
 import {
   loadMealPlannerState,
   saveMealPlannerState,
@@ -221,6 +221,19 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [recipeShareMsg, setRecipeShareMsg] = useState<string | null>(null);
   const [recipeShareErr, setRecipeShareErr] = useState<string | null>(null);
 
+  const [lastLogUndo, setLastLogUndo] = useState<
+  | {
+      entryId: string;
+      date: string;
+      type: "meal" | "snack";
+      day: PlannerDayKey;
+      slotKey?: MealSlotKey;
+      snackId?: string;
+      label: string;
+    }
+  | null
+>(null);
+
   useEffect(() => {
     setMyRecipes(loadRecipes());
   }, []);
@@ -251,6 +264,48 @@ useEffect(() => {
       return nameMatch || ingredientMatch;
     });
   }, [allRecipes, search]);
+
+  function undoLastLog() {
+  if (!lastLogUndo) return;
+
+  deleteLogEntry(lastLogUndo.date, lastLogUndo.entryId);
+
+  setPlannerByDay((prev) => {
+    const next = { ...prev };
+
+    if (lastLogUndo.type === "meal" && lastLogUndo.slotKey) {
+      next[lastLogUndo.day] = {
+        ...next[lastLogUndo.day],
+        mealSlots: {
+          ...next[lastLogUndo.day].mealSlots,
+          [lastLogUndo.slotKey]: {
+            ...next[lastLogUndo.day].mealSlots[lastLogUndo.slotKey],
+            logged: false,
+          },
+        },
+      };
+    }
+
+    if (lastLogUndo.type === "snack" && lastLogUndo.snackId) {
+      next[lastLogUndo.day] = {
+        ...next[lastLogUndo.day],
+        snackSlots: next[lastLogUndo.day].snackSlots.map((snack) =>
+          snack.id === lastLogUndo.snackId
+            ? { ...snack, logged: false }
+            : snack
+        ),
+      };
+    }
+
+    return next;
+  });
+
+  setPlannerErr(null);
+  setPlannerMsg(`Undid log for ${lastLogUndo.label} ↩`);
+  setLastLogUndo(null);
+
+  window.setTimeout(() => setPlannerMsg(null), 1800);
+}
 
   function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
   setPlannerByDay((prev) => ({
@@ -349,7 +404,16 @@ function generateGroceryFromPlanner() {
   const name =
     meal.servings > 1 ? `${meal.recipe.name} x${meal.servings}` : meal.recipe.name;
 
-  addLogEntry(name, macros);
+  const entry = addLogEntry(name, macros);
+
+setLastLogUndo({
+  entryId: entry.id,
+  date: todayISO(),
+  type: "meal",
+  day: selectedDay,
+  slotKey: slot,
+  label: name,
+});
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -425,7 +489,16 @@ function generateGroceryFromPlanner() {
   const name =
     snack.servings > 1 ? `${snack.recipe.name} x${snack.servings}` : snack.recipe.name;
 
-  addLogEntry(name, macros);
+  const entry = addLogEntry(name, macros);
+
+setLastLogUndo({
+  entryId: entry.id,
+  date: todayISO(),
+  type: "snack",
+  day: selectedDay,
+  snackId: id,
+  label: name,
+});
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -861,6 +934,17 @@ function onDeleteRecipe(id: string) {
   </button>
 </div>
 </div>
+{lastLogUndo && (
+  <div className="mt-3">
+    <button
+      type="button"
+      onClick={undoLastLog}
+      className="w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-700"
+    >
+      Undo Last Log
+    </button>
+  </div>
+)}
             {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
               const slot = mealSlots[slotKey];
               const recipe = slot.recipe;
