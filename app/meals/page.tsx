@@ -234,9 +234,6 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   | null
 >(null);
 
-  useEffect(() => {
-    setMyRecipes(loadRecipes());
-  }, []);
 useEffect(() => {
   setMyRecipes(loadRecipes());
 
@@ -423,6 +420,7 @@ setLastLogUndo({
   slotKey: slot,
   label: name,
 });
+setPlannerMsg(`DEBUG: setLastLogUndo ran for ${name}`);
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -511,6 +509,7 @@ function markSnackLogged(id: string) {
     snackId: id,
     label: name,
   });
+setPlannerMsg(`DEBUG: setLastLogUndo ran for ${name}`);
 
   setPlannerByDay((prev) => ({
     ...prev,
