@@ -960,7 +960,11 @@ function onDeleteRecipe(id: string) {
     </button>
   </div>
 )}
-     
+
+<div className="mt-2 text-xs text-yellow-300">
+  DEBUG: {JSON.stringify(lastLogUndo)}
+</div>
+   
 </div>
        {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
               const slot = mealSlots[slotKey];
