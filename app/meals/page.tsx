@@ -933,7 +933,6 @@ function onDeleteRecipe(id: string) {
     Generate Grocery for All Days
   </button>
 </div>
-</div>
 {lastLogUndo && (
   <div className="mt-3">
     <button
@@ -945,7 +944,9 @@ function onDeleteRecipe(id: string) {
     </button>
   </div>
 )}
-            {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
+     
+</div>
+       {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
               const slot = mealSlots[slotKey];
               const recipe = slot.recipe;
               const logged = slot.logged;
