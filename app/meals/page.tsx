@@ -932,8 +932,7 @@ function onDeleteRecipe(id: string) {
   >
     Generate Grocery for All Days
   </button>
-</div>
-{lastLogUndo && (
+  {lastLogUndo && (
   <div className="mt-3">
     <button
       type="button"
@@ -944,6 +943,8 @@ function onDeleteRecipe(id: string) {
     </button>
   </div>
 )}
+</div>
+
      
 </div>
        {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
