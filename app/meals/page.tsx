@@ -932,6 +932,9 @@ function onDeleteRecipe(id: string) {
   >
     Generate Grocery for All Days
   </button>
+  <p className="text-xs text-red-400">
+  {lastLogUndo ? `UNDO READY: ${lastLogUndo.label}` : "UNDO EMPTY"}
+</p>
   {lastLogUndo && (
   <div className="mt-3">
     <button
