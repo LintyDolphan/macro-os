@@ -405,13 +405,6 @@ function markMealSlotLogged(slot: MealSlotKey) {
 
   const entry = addLogEntry(name, macros);
 
-console.log("UNDO TEST MEAL", {
-  entryId: entry.id,
-  name,
-  day,
-  slot,
-});
-
 setLastLogUndo({
   entryId: entry.id,
   date: todayISO(),
@@ -500,7 +493,7 @@ function markSnackLogged(id: string) {
     snack.servings > 1 ? `${snack.recipe.name} x${snack.servings}` : snack.recipe.name;
 
   const entry = addLogEntry(name, macros);
-  console.log("SETTING UNDO", entry.id);
+ 
   setLastLogUndo({
     entryId: entry.id,
     date: todayISO(),
@@ -943,12 +936,21 @@ function onDeleteRecipe(id: string) {
   >
     Generate Grocery for All Days
   </button>
-  <p className="text-xs text-red-400">
-  {lastLogUndo ? `UNDO READY: ${lastLogUndo.label}` : "UNDO EMPTY"}
-</p>
 
 </div>
-  
+
+{lastLogUndo && (
+  <div className="mt-3">
+    <button
+      type="button"
+      onClick={undoLastLog}
+      className="w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white hover:bg-amber-700"
+    >
+      Undo Last Log
+    </button>
+  </div>
+)}
+
 </div>
        {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
               const slot = mealSlots[slotKey];
