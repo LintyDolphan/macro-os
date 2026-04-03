@@ -221,7 +221,7 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [recipeShareMsg, setRecipeShareMsg] = useState<string | null>(null);
   const [recipeShareErr, setRecipeShareErr] = useState<string | null>(null);
 
-  const [lastLogUndo, setLastLogUndo] = useState<
+const [lastLogUndo, setLastLogUndo] = useState<
   | {
       entryId: string;
       date: string;
