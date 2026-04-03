@@ -396,7 +396,7 @@ function generateGroceryFromPlanner() {
   }));
 }
 
- function markMealSlotLogged(slot: MealSlotKey) {
+function markMealSlotLogged(slot: MealSlotKey) {
   const meal = plannerByDay[selectedDay].mealSlots[slot];
   if (!meal.recipe || meal.logged) return;
 
@@ -406,14 +406,14 @@ function generateGroceryFromPlanner() {
 
   const entry = addLogEntry(name, macros);
 
-setLastLogUndo({
-  entryId: entry.id,
-  date: todayISO(),
-  type: "meal",
-  day: selectedDay,
-  slotKey: slot,
-  label: name,
-});
+  setLastLogUndo({
+    entryId: entry.id,
+    date: todayISO(),
+    type: "meal",
+    day: selectedDay,
+    slotKey: slot,
+    label: name,
+  });
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -429,7 +429,6 @@ setLastLogUndo({
     },
   }));
 }
-
   function updateMealSlotServings(slot: MealSlotKey, delta: number) {
   setPlannerByDay((prev) => ({
     ...prev,
@@ -481,7 +480,7 @@ setLastLogUndo({
   }));
 }
 
-  function markSnackLogged(id: string) {
+function markSnackLogged(id: string) {
   const snack = plannerByDay[selectedDay].snackSlots.find((s) => s.id === id);
   if (!snack?.recipe || snack.logged) return;
 
@@ -491,14 +490,14 @@ setLastLogUndo({
 
   const entry = addLogEntry(name, macros);
 
-setLastLogUndo({
-  entryId: entry.id,
-  date: todayISO(),
-  type: "snack",
-  day: selectedDay,
-  snackId: id,
-  label: name,
-});
+  setLastLogUndo({
+    entryId: entry.id,
+    date: todayISO(),
+    type: "snack",
+    day: selectedDay,
+    snackId: id,
+    label: name,
+  });
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -510,7 +509,6 @@ setLastLogUndo({
     },
   }));
 }
-
 function updateSnackServings(id: string, delta: number) {
   setPlannerByDay((prev) => ({
     ...prev,
@@ -935,6 +933,8 @@ function onDeleteRecipe(id: string) {
   <p className="text-xs text-red-400">
   {lastLogUndo ? `UNDO READY: ${lastLogUndo.label}` : "UNDO EMPTY"}
 </p>
+
+</div>
   {lastLogUndo && (
   <div className="mt-3">
     <button
@@ -946,8 +946,6 @@ function onDeleteRecipe(id: string) {
     </button>
   </div>
 )}
-</div>
-
      
 </div>
        {(["breakfast", "lunch", "dinner"] as MealSlotKey[]).map((slotKey) => {
