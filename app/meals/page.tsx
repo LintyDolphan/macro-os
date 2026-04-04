@@ -1,5 +1,16 @@
 "use client";
 
+
+import {
+  getPlannedMeals,
+  upsertPlannedMeal,
+  deletePlannedMealBySlot,
+  setPlannedMealLogged,
+} from "../lib/planner-db";
+import {
+  getSnackSortOrder,
+  mapPlannedMealsToPlannerState,
+} from "../lib/planner-mappers";
 import { useEffect, useMemo, useState } from "react";
 import AppShell from "../components/AppShell";
 import {
@@ -15,8 +26,6 @@ import {
 } from "../lib/recipes";
 import { addLogEntry, deleteLogEntry, todayISO } from "../lib/macroLog";
 import {
-  loadMealPlannerState,
-  saveMealPlannerState,
   type MealSlot,
   type MealSlotKey,
   type SnackSlot,
@@ -234,27 +243,31 @@ const [lastLogUndo, setLastLogUndo] = useState<
   | null
 >(null);
 
+
 useEffect(() => {
   async function init() {
     try {
       const recipes = await loadRecipes();
       setMyRecipes(recipes);
-    } catch (error) {
-      console.error("Failed to load recipes:", error);
-    }
 
-    const saved = loadMealPlannerState();
-    if (saved) {
-      setPlannerByDay(saved);
+      const plannedMeals = await getPlannedMeals();
+      const mappedPlanner = mapPlannedMealsToPlannerState(
+        plannedMeals,
+        [...TEMPLATE_RECIPES, ...recipes]
+      );
+      setPlannerByDay(mappedPlanner);
+    } catch (error) {
+      console.error("Failed to initialize meals page:", error);
     }
   }
 
   init();
 }, []);
 
-useEffect(() => {
-  saveMealPlannerState(plannerByDay);
-}, [plannerByDay]);
+
+// useEffect(() => {
+//   saveMealPlannerState(plannerByDay);
+// }, [plannerByDay]);
 
   const allRecipes = useMemo(() => [...TEMPLATE_RECIPES, ...myRecipes], [myRecipes]);
 
@@ -271,32 +284,33 @@ useEffect(() => {
     });
   }, [allRecipes, search]);
 
-  function undoLastLog() {
-  if (!lastLogUndo) return;
+async function undoLastLog() {
+  const undo = lastLogUndo;
+  if (!undo) return;
 
-  deleteLogEntry(lastLogUndo.date, lastLogUndo.entryId);
+  deleteLogEntry(undo.date, undo.entryId);
 
   setPlannerByDay((prev) => {
     const next = { ...prev };
 
-    if (lastLogUndo.type === "meal" && lastLogUndo.slotKey) {
-      next[lastLogUndo.day] = {
-        ...next[lastLogUndo.day],
+    if (undo.type === "meal" && undo.slotKey) {
+      next[undo.day] = {
+        ...next[undo.day],
         mealSlots: {
-          ...next[lastLogUndo.day].mealSlots,
-          [lastLogUndo.slotKey]: {
-            ...next[lastLogUndo.day].mealSlots[lastLogUndo.slotKey],
+          ...next[undo.day].mealSlots,
+          [undo.slotKey]: {
+            ...next[undo.day].mealSlots[undo.slotKey],
             logged: false,
           },
         },
       };
     }
 
-    if (lastLogUndo.type === "snack" && lastLogUndo.snackId) {
-      next[lastLogUndo.day] = {
-        ...next[lastLogUndo.day],
-        snackSlots: next[lastLogUndo.day].snackSlots.map((snack) =>
-          snack.id === lastLogUndo.snackId
+    if (undo.type === "snack" && undo.snackId) {
+      next[undo.day] = {
+        ...next[undo.day],
+        snackSlots: next[undo.day].snackSlots.map((snack) =>
+          snack.id === undo.snackId
             ? { ...snack, logged: false }
             : snack
         ),
@@ -306,14 +320,59 @@ useEffect(() => {
     return next;
   });
 
+  try {
+    if (undo.type === "meal" && undo.slotKey) {
+      const meal = plannerByDay[undo.day].mealSlots[undo.slotKey];
+
+      if (meal.recipe) {
+                const result = await setPlannedMealLogged(undo.day, "meal", undo.slotKey, false);
+
+        if (result.error) {
+          setPlannerErr(result.error);
+          return;
+        }
+      }
+    }
+
+    if (undo.type === "snack" && undo.snackId) {
+      const snack = plannerByDay[undo.day].snackSlots.find(
+        (s) => s.id === undo.snackId
+      );
+
+      if (snack?.recipe) {
+                const result = await setPlannedMealLogged(
+          undo.day,
+          "snack",
+          undo.snackId,
+          false
+        );
+
+        if (result.error) {
+          setPlannerErr(result.error);
+          return;
+        }
+      }
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to undo logged state";
+    setPlannerErr(message);
+    return;
+  }
+
   setPlannerErr(null);
-  setPlannerMsg(`Undid log for ${lastLogUndo.label} ↩`);
+  setPlannerMsg(`Undid log for ${undo.label} ↩`);
   setLastLogUndo(null);
 
   window.setTimeout(() => setPlannerMsg(null), 1800);
 }
 
-  function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
+async function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
+  const servings =
+    plannerByDay[selectedDay].mealSlots[slot].servings ||
+    recipe.defaultServings ||
+    1;
+
   setPlannerByDay((prev) => ({
     ...prev,
     [selectedDay]: {
@@ -322,17 +381,31 @@ useEffect(() => {
         ...prev[selectedDay].mealSlots,
         [slot]: {
           recipe,
-          servings:
-            prev[selectedDay].mealSlots[slot].servings ||
-            recipe.defaultServings ||
-            1,
+          servings,
           logged: false,
         },
       },
     },
   }));
+
+  const result = await upsertPlannedMeal({
+    day_key: selectedDay,
+    slot_type: "meal",
+    slot_key: slot,
+    recipe_id: recipe.isTemplate ? null : recipe.id,
+    template_id: recipe.isTemplate ? recipe.id : null,
+    servings,
+    logged: false,
+    sort_order: 0,
+  });
+
+  if (result.error) {
+    setPlannerMsg(null);
+    setPlannerErr(result.error);
+    return;
+  }
 }
-  
+
 function collectPlannerIngredients() {
   const collected: Ingredient[] = [];
 
@@ -389,7 +462,8 @@ function generateGroceryFromPlanner() {
     setPlannerErr("Couldn’t generate grocery list.");
   }
 }
-  function clearMealSlot(slot: MealSlotKey) {
+
+async function clearMealSlot(slot: MealSlotKey) {
   setPlannerByDay((prev) => ({
     ...prev,
     [selectedDay]: {
@@ -400,11 +474,17 @@ function generateGroceryFromPlanner() {
       },
     },
   }));
+
+  try {
+    await deletePlannedMealBySlot(selectedDay, "meal", slot);
+  } catch (error) {
+    console.error("Failed to clear meal slot:", error);
+  }
 }
 
-function markMealSlotLogged(slot: MealSlotKey) {
-  const day = selectedDay; // <-- ADD THIS
 
+async function markMealSlotLogged(slot: MealSlotKey) {
+  const day = selectedDay;
   const meal = plannerByDay[day].mealSlots[slot];
   if (!meal.recipe || meal.logged) return;
 
@@ -414,15 +494,14 @@ function markMealSlotLogged(slot: MealSlotKey) {
 
   const entry = addLogEntry(name, macros);
 
-setLastLogUndo({
-  entryId: entry.id,
-  date: todayISO(),
-  type: "meal",
-  day: day,
-  slotKey: slot,
-  label: name,
-});
-
+  setLastLogUndo({
+    entryId: entry.id,
+    date: todayISO(),
+    type: "meal",
+    day,
+    slotKey: slot,
+    label: name,
+  });
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -437,46 +516,17 @@ setLastLogUndo({
       },
     },
   }));
+
+    const result = await setPlannedMealLogged(day, "meal", slot, true);
+
+  if (result.error) {
+    setPlannerMsg(null);
+    setPlannerErr(result.error);
+    return;
+  }
 }
 
-  function updateMealSlotServings(slot: MealSlotKey, delta: number) {
-  setPlannerByDay((prev) => ({
-    ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
-      mealSlots: {
-        ...prev[selectedDay].mealSlots,
-        [slot]: {
-          ...prev[selectedDay].mealSlots[slot],
-          servings: Math.max(
-            1,
-            prev[selectedDay].mealSlots[slot].servings + delta
-          ),
-        },
-      },
-    },
-  }));
-}
-  function setSnackRecipe(id: string, recipe: Recipe) {
-  setPlannerByDay((prev) => ({
-    ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
-      snackSlots: prev[selectedDay].snackSlots.map((snack) =>
-        snack.id === id
-          ? {
-              ...snack,
-              recipe,
-              servings: snack.servings || recipe.defaultServings || 1,
-              logged: false,
-            }
-          : snack
-      ),
-    },
-  }));
-}
-
- function clearSnack(id: string) {
+async function clearSnack(id: string) {
   setPlannerByDay((prev) => ({
     ...prev,
     [selectedDay]: {
@@ -488,12 +538,16 @@ setLastLogUndo({
       ),
     },
   }));
+
+  try {
+    await deletePlannedMealBySlot(selectedDay, "snack", id);
+  } catch (error) {
+    console.error("Failed to clear snack slot:", error);
+  }
 }
 
-function markSnackLogged(id: string) {
-  const day = selectedDay; // <-- ADD THIS
-
-
+async function markSnackLogged(id: string) {
+  const day = selectedDay;
   const snack = plannerByDay[day].snackSlots.find((s) => s.id === id);
   if (!snack?.recipe || snack.logged) return;
 
@@ -502,16 +556,15 @@ function markSnackLogged(id: string) {
     snack.servings > 1 ? `${snack.recipe.name} x${snack.servings}` : snack.recipe.name;
 
   const entry = addLogEntry(name, macros);
- 
+
   setLastLogUndo({
     entryId: entry.id,
     date: todayISO(),
     type: "snack",
-    day: day, // <-- use local var
+    day,
     snackId: id,
     label: name,
   });
-
 
   setPlannerByDay((prev) => ({
     ...prev,
@@ -522,6 +575,14 @@ function markSnackLogged(id: string) {
       ),
     },
   }));
+
+  const result = await setPlannedMealLogged(day, "snack", id, true);
+
+  if (result.error) {
+    setPlannerMsg(null);
+    setPlannerErr(result.error);
+    return;
+  }
 }
 
 function updateSnackServings(id: string, delta: number) {
@@ -587,7 +648,82 @@ function collectAllPlannedIngredients() {
 
   return collected;
 }
+async function setSnackRecipe(id: string, recipe: Recipe) {
+  const currentSnack = plannerByDay[selectedDay].snackSlots.find((snack) => snack.id === id);
+  const servings = currentSnack?.servings || recipe.defaultServings || 1;
+  const sortOrder = getSnackSortOrder(plannerByDay[selectedDay].snackSlots, id);
 
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      snackSlots: prev[selectedDay].snackSlots.map((snack) =>
+        snack.id === id
+          ? {
+              ...snack,
+              recipe,
+              servings,
+              logged: false,
+            }
+          : snack
+      ),
+    },
+  }));
+
+  const result = await upsertPlannedMeal({
+    day_key: selectedDay,
+    slot_type: "snack",
+    slot_key: id,
+    recipe_id: recipe.isTemplate ? null : recipe.id,
+    template_id: recipe.isTemplate ? recipe.id : null,
+    servings,
+    logged: false,
+    sort_order: sortOrder,
+  });
+
+  if (result.error) {
+    setPlannerMsg(null);
+    setPlannerErr(result.error);
+    return;
+  }
+}
+async function updateMealSlotServings(slot: MealSlotKey, delta: number) {
+  const currentSlot = plannerByDay[selectedDay].mealSlots[slot];
+  const nextServings = Math.max(1, currentSlot.servings + delta);
+
+  setPlannerByDay((prev) => ({
+    ...prev,
+    [selectedDay]: {
+      ...prev[selectedDay],
+      mealSlots: {
+        ...prev[selectedDay].mealSlots,
+        [slot]: {
+          ...prev[selectedDay].mealSlots[slot],
+          servings: nextServings,
+        },
+      },
+    },
+  }));
+
+  if (!currentSlot.recipe) return;
+
+  const result = await upsertPlannedMeal({
+    day_key: selectedDay,
+    slot_type: "meal",
+    slot_key: slot,
+    recipe_id: currentSlot.recipe.isTemplate ? null : currentSlot.recipe.id,
+    template_id: currentSlot.recipe.isTemplate ? currentSlot.recipe.id : null,
+    servings: nextServings,
+    logged: currentSlot.logged,
+    sort_order: 0,
+  });
+
+  if (result.error) {
+    setPlannerMsg(null);
+    setPlannerErr(result.error);
+    return;
+  }
+}
 function generateGroceryFromAllDays() {
   try {
     const ingredients = collectAllPlannedIngredients();
