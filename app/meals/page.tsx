@@ -235,12 +235,21 @@ const [lastLogUndo, setLastLogUndo] = useState<
 >(null);
 
 useEffect(() => {
-  setMyRecipes(loadRecipes());
+  async function init() {
+    try {
+      const recipes = await loadRecipes();
+      setMyRecipes(recipes);
+    } catch (error) {
+      console.error("Failed to load recipes:", error);
+    }
 
-  const saved = loadMealPlannerState();
-  if (saved) {
-    setPlannerByDay(saved);
+    const saved = loadMealPlannerState();
+    if (saved) {
+      setPlannerByDay(saved);
+    }
   }
+
+  init();
 }, []);
 
 useEffect(() => {
@@ -662,7 +671,7 @@ function generateGroceryFromAllDays() {
     setSteps((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  function onCreateRecipe(e: React.FormEvent) {
+ async function onCreateRecipe(e: React.FormEvent) {
     e.preventDefault();
 
     const cleanedName = recipeName.trim();
@@ -683,20 +692,25 @@ function generateGroceryFromAllDays() {
 
     if (!cleanedName || cleanedIngredients.length === 0) return;
 
-    setMyRecipes((prev) =>
-      addRecipe(prev, {
-        name: cleanedName,
-        ingredients: cleanedIngredients,
-        defaultServings: servingsNum,
-        totalMacros: {
-          calories: Number(totalCalories) || 0,
-          protein: Number(totalProtein) || 0,
-          carbs: Number(totalCarbs) || 0,
-          fat: Number(totalFat) || 0,
-        },
-        steps: cleanedSteps,
-      })
-    );
+try {
+  const nextRecipes = await addRecipe(myRecipes, {
+    name: cleanedName,
+    ingredients: cleanedIngredients,
+    defaultServings: servingsNum,
+    totalMacros: {
+      calories: Number(totalCalories) || 0,
+      protein: Number(totalProtein) || 0,
+      carbs: Number(totalCarbs) || 0,
+      fat: Number(totalFat) || 0,
+    },
+    steps: cleanedSteps,
+  });
+
+  setMyRecipes(nextRecipes);
+} catch (error) {
+  console.error("Failed to create recipe:", error);
+  return;
+}
 
     setRecipeName("");
     setDefaultServings(2);
@@ -709,8 +723,14 @@ function generateGroceryFromAllDays() {
     setTab("recipes");
   }
 
-function onDeleteRecipe(id: string) {
-  setMyRecipes((prev) => deleteRecipe(prev, id));
+async function onDeleteRecipe(id: string) {
+  try {
+  const nextRecipes = await deleteRecipe(myRecipes, id);
+  setMyRecipes(nextRecipes);
+} catch (error) {
+  console.error("Failed to delete recipe:", error);
+  return;
+}
 
   setPlannerByDay((prev) => {
     const next = { ...prev };
@@ -759,19 +779,20 @@ function onDeleteRecipe(id: string) {
     }
   }
 
-  function onImportRecipe() {
-    try {
-      const imported = importRecipeShareCode(recipeShareCode);
-      setMyRecipes((prev) => mergeImportedRecipe(prev, imported));
-      setRecipeShareCode("");
-      setRecipeShareErr(null);
-      setRecipeShareMsg("Recipe imported ✅");
-      window.setTimeout(() => setRecipeShareMsg(null), 1600);
-    } catch {
-      setRecipeShareMsg(null);
-      setRecipeShareErr("Invalid recipe code.");
-    }
+async function onImportRecipe() {
+  try {
+    const imported = importRecipeShareCode(recipeShareCode);
+    const nextRecipes = await mergeImportedRecipe(myRecipes, imported);
+    setMyRecipes(nextRecipes);
+    setRecipeShareCode("");
+    setRecipeShareErr(null);
+    setRecipeShareMsg("Recipe imported ✅");
+    window.setTimeout(() => setRecipeShareMsg(null), 1600);
+  } catch {
+    setRecipeShareMsg(null);
+    setRecipeShareErr("Invalid recipe code.");
   }
+}
 
   const activeSlotLabel = useMemo(() => {
     if (!activeSlot) return null;

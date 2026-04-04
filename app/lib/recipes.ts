@@ -1,8 +1,13 @@
 import type { GroceryCategory } from "./grocery";
+import {
+  getRecipes as getRecipesFromDb,
+  createRecipe as createRecipeInDb,
+  deleteRecipe as deleteRecipeInDb,
+} from "./recipes-db";
 
 export type Ingredient = {
   name: string;
-  qty?: string; // "200g", "1 cup", "2"
+  qty?: string;
   category: GroceryCategory;
 };
 
@@ -14,15 +19,15 @@ export type Recipe = {
   isTemplate?: boolean;
   defaultServings: number;
   totalMacros: Macros;
-  steps?: string[]; // optional cooking/instruction steps
+  steps?: string[];
 };
+
 export type Macros = {
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
 };
-const KEY = "recipes";
 
 export const TEMPLATE_RECIPES: Recipe[] = [
   {
@@ -38,49 +43,147 @@ export const TEMPLATE_RECIPES: Recipe[] = [
       { name: "Granola", qty: "1 bag", category: "pantry" },
       { name: "Honey (optional)", qty: "1 bottle", category: "pantry" },
     ],
+    steps: [],
   },
-  // ...repeat for other templates
 ];
 
-export function loadRecipes(): Recipe[] {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+function inferCategory(name: string): GroceryCategory {
+  const lower = name.toLowerCase();
+
+  if (
+    lower.includes("chicken") ||
+    lower.includes("beef") ||
+    lower.includes("pork") ||
+    lower.includes("turkey") ||
+    lower.includes("fish")
+  ) {
+    return "meat";
   }
+
+  if (
+    lower.includes("milk") ||
+    lower.includes("yogurt") ||
+    lower.includes("cheese") ||
+    lower.includes("butter")
+  ) {
+    return "dairy";
+  }
+
+  if (
+    lower.includes("berry") ||
+    lower.includes("broccoli") ||
+    lower.includes("apple") ||
+    lower.includes("banana") ||
+    lower.includes("spinach") ||
+    lower.includes("lettuce") ||
+    lower.includes("pepper") ||
+    lower.includes("onion")
+  ) {
+    return "produce";
+  }
+
+  if (lower.includes("frozen")) {
+    return "frozen";
+  }
+
+  if (
+    lower.includes("bread") ||
+    lower.includes("rice") ||
+    lower.includes("pasta") ||
+    lower.includes("oats") ||
+    lower.includes("granola") ||
+    lower.includes("oil") ||
+    lower.includes("sauce") ||
+    lower.includes("honey")
+  ) {
+    return "pantry";
+  }
+
+  return "other";
 }
 
-export function saveRecipes(recipes: Recipe[]) {
-  localStorage.setItem(KEY, JSON.stringify(recipes));
+function joinStepsToInstructions(steps?: string[]) {
+  return (steps ?? []).filter(Boolean).join("\n");
 }
 
-export function addRecipe(
+function splitInstructionsToSteps(instructions?: string | null) {
+  if (!instructions) return [];
+  return instructions
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function formatIngredientQty(amount: number | null, unit: string | null) {
+  if (amount != null && unit) return `${amount}${unit}`;
+  if (amount != null) return String(amount);
+  if (unit) return unit;
+  return undefined;
+}
+
+function mapDbRecipeToRecipe(dbRecipe: any): Recipe {
+  return {
+    id: dbRecipe.id,
+    name: dbRecipe.name,
+    createdAt: dbRecipe.created_at,
+    isTemplate: false,
+    defaultServings: dbRecipe.servings ?? 1,
+    totalMacros: {
+      calories: Number(dbRecipe.calories ?? 0),
+      protein: Number(dbRecipe.protein_g ?? 0),
+      carbs: Number(dbRecipe.carbs_g ?? 0),
+      fat: Number(dbRecipe.fat_g ?? 0),
+    },
+    steps: splitInstructionsToSteps(dbRecipe.instructions),
+    ingredients: (dbRecipe.recipe_ingredients ?? [])
+      .slice()
+      .sort((a: any, b: any) => a.sort_order - b.sort_order)
+      .map((ingredient: any) => ({
+        name: ingredient.name,
+        qty: formatIngredientQty(ingredient.amount, ingredient.unit),
+        category: inferCategory(ingredient.name),
+      })),
+  };
+}
+
+function mapRecipeToDbInput(recipe: Omit<Recipe, "id" | "createdAt" | "isTemplate">) {
+  return {
+    name: recipe.name.trim(),
+    description: null,
+    instructions: joinStepsToInstructions(recipe.steps),
+    servings: recipe.defaultServings,
+    calories: recipe.totalMacros.calories,
+    protein_g: recipe.totalMacros.protein,
+    carbs_g: recipe.totalMacros.carbs,
+    fat_g: recipe.totalMacros.fat,
+    ingredients: recipe.ingredients.map((ingredient, index) => ({
+      name: ingredient.name,
+      amount: null,
+      unit: ingredient.qty ?? null,
+      notes: ingredient.category,
+      sort_order: index,
+    })),
+  };
+}
+
+export async function loadRecipes(): Promise<Recipe[]> {
+  const dbRecipes = await getRecipesFromDb();
+  return (dbRecipes ?? []).map(mapDbRecipeToRecipe);
+}
+
+export async function addRecipe(
   recipes: Recipe[],
   recipe: Omit<Recipe, "id" | "createdAt" | "isTemplate">
-) {
-  const newRecipe: Recipe = {
-    id: crypto.randomUUID(),
-    name: recipe.name.trim(),
-    ingredients: recipe.ingredients,
-    createdAt: new Date().toISOString(),
-    isTemplate: false,
-    defaultServings: recipe.defaultServings,
-    totalMacros: recipe.totalMacros,
-    steps: recipe.steps ?? [],
-  };
+): Promise<Recipe[]> {
+  await createRecipeInDb(mapRecipeToDbInput(recipe));
+  return await loadRecipes();
+}
 
-  const next = [newRecipe, ...recipes];
-  saveRecipes(next);
-  return next;
+export async function deleteRecipe(recipes: Recipe[], id: string): Promise<Recipe[]> {
+  await deleteRecipeInDb(id);
+  return await loadRecipes();
 }
-export function deleteRecipe(recipes: Recipe[], id: string) {
-  const next = recipes.filter((r) => r.id !== id);
-  saveRecipes(next);
-  return next;
-}
+
 export function exportRecipeShareCode(recipe: Recipe) {
   const payload = { v: 1, recipe };
   return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -97,19 +200,24 @@ export function importRecipeShareCode(code: string): Recipe {
   throw new Error("Invalid recipe share code");
 }
 
-export function mergeImportedRecipe(recipes: Recipe[], recipe: Recipe) {
-  const exists = recipes.some(
+export async function mergeImportedRecipe(recipes: Recipe[], recipe: Recipe): Promise<Recipe[]> {
+  const existing = await loadRecipes();
+
+  const exists = existing.some(
     (r) => r.name.trim().toLowerCase() === recipe.name.trim().toLowerCase()
   );
 
-  const importedRecipe: Recipe = {
-    ...recipe,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    isTemplate: false,
-  };
+  if (exists) return existing;
 
-  const next = exists ? recipes : [importedRecipe, ...recipes];
-  saveRecipes(next);
-  return next;
+  await createRecipeInDb(
+    mapRecipeToDbInput({
+      name: recipe.name,
+      ingredients: recipe.ingredients,
+      defaultServings: recipe.defaultServings,
+      totalMacros: recipe.totalMacros,
+      steps: recipe.steps ?? [],
+    })
+  );
+
+  return await loadRecipes();
 }
