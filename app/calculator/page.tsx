@@ -15,54 +15,63 @@ export default function CalculatorPage() {
   const [age, setAge] = useState("");
   const [activity, setActivity] = useState<Activity>("moderate");
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  e.preventDefault();
 
-    const w = Number(weight);
-const h = Number(height);
-const a = Number(age);
+  const w = Number(weight);
+  const h = Number(height);
+  const a = Number(age);
 
-if (!w || w < 50 || w > 500) {
-  setError("Please enter a valid weight (50–500 lbs).");
-  return;
-}
-if (!h || h < 48 || h > 90) {
-  setError("Please enter a valid height (48–90 inches).");
-  return;
-}
-if (!a || a < 13 || a > 90) {
-  setError("Please enter a valid age (13–90).");
-  return;
-}
-
-setError(null);
-
-const macros = calculateMacros({
-  weightLbs: w,
-  heightIn: h,
-  age: a,
-  sex,
-  activity,
-  goal,
-});
-
-const payload = {
-  ...macros,
-  inputs: { sex, age: a, activity, weightLbs: w, heightIn: h, goal },
-  updatedAt: new Date().toISOString(),
-};
-
-const entry = {
-  id: crypto.randomUUID(),
-  ...payload,
-};
-
-addToHistory(entry);
-router.push("/");
-
-
+  if (!w || w < 50 || w > 500) {
+    setError("Please enter a valid weight (50–500 lbs).");
+    return;
   }
+  if (!h || h < 48 || h > 90) {
+    setError("Please enter a valid height (48–90 inches).");
+    return;
+  }
+  if (!a || a < 13 || a > 90) {
+    setError("Please enter a valid age (13–90).");
+    return;
+  }
+
+  setError(null);
+  setSaving(true);
+
+  const macros = calculateMacros({
+    weightLbs: w,
+    heightIn: h,
+    age: a,
+    sex,
+    activity,
+    goal,
+  });
+
+  const payload = {
+    id: crypto.randomUUID(),
+    ...macros,
+    inputs: {
+      sex,
+      age: a,
+      activity,
+      weightLbs: w,
+      heightIn: h,
+      goal,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    await addToHistory(payload);
+    router.push("/");
+  } catch (error) {
+    console.error("Failed to save macro target:", error);
+    setError("Couldn’t save your macro targets. Please try again.");
+    setSaving(false);
+  }
+}
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-6 bg-gray-900 text-white">
@@ -150,11 +159,12 @@ router.push("/");
           </div>
 
           <button
-            type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded font-semibold"
-          >
-            Calculate
-          </button>
+  type="submit"
+  disabled={saving}
+  className="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+>
+  {saving ? "Saving..." : "Calculate"}
+</button>
         </form>
       </div>
     </main>

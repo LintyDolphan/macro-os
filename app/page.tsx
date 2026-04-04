@@ -155,39 +155,49 @@ export default function Dashboard() {
     fat: 0,
   });
 
-  useEffect(() => {
-    const c = loadCurrent();
-    const h = loadHistory();
-    const todayEntries = loadLog(todayISO());
-    const groceryItems = loadGroceryList();
+ useEffect(() => {
+  async function loadDashboardData() {
+    try {
+      const c = await loadCurrent();
+      const h = await loadHistory();
+      const todayEntries = await loadLog(todayISO());
+      const groceryItems = await loadGroceryList();
 
-    setCurrentState(c);
-    setHistory(h);
-    
-    setTodayTotals(sumMacros(todayEntries));
-    setTodayLogCount(todayEntries.length);
-    setGroceryCount(groceryItems.filter((item) => !item.bought).length);
-    setRecentMeals(
-  todayEntries.slice(0, 3).map((entry) => ({
-    id: entry.id,
-    name: entry.name,
-    calories: entry.macros.calories,
-    protein: entry.macros.protein,
-    carbs: entry.macros.carbs,
-    fat: entry.macros.fat,
-  }))
-);
+      setCurrentState(c);
+      setHistory(h);
 
-setGroceryPreview(
-  groceryItems
-    .filter((item) => !item.bought)
-    .slice(0, 3)
-    .map((item) => ({
-      id: item.id,
-      name: item.name,
-    }))
-);
-  }, []);
+      setTodayTotals(sumMacros(todayEntries));
+      setTodayLogCount(todayEntries.length);
+      setGroceryCount(groceryItems.filter((item) => !item.bought).length);
+
+      setRecentMeals(
+        todayEntries.slice(0, 3).map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          calories: entry.macros.calories,
+          protein: entry.macros.protein,
+          carbs: entry.macros.carbs,
+          fat: entry.macros.fat,
+        }))
+      );
+
+      setGroceryPreview(
+        groceryItems
+          .filter((item) => !item.bought)
+          .slice(0, 3)
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+          }))
+      );
+    } catch (error) {
+      console.error("Failed to load dashboard data:", error);
+    }
+  }
+
+  loadDashboardData();
+}, []);
+
 
   function copyToClipboard() {
     if (!current) return;
@@ -203,31 +213,29 @@ setGroceryPreview(
     setTimeout(() => setCopied(false), 1200);
   }
 
-  function restoreEntry(entry: MacroEntry) {
-    setCurrent(entry);
-    setCurrentState(entry);
-  }
+async function restoreEntry(entry: MacroEntry) {
+  await setCurrent(entry);
+  setCurrentState(entry);
+}
 
-  function removeEntry(id: string) {
-    const next = deleteFromHistory(id);
-    setHistory(next);
+async function removeEntry(id: string) {
+  const next = await deleteFromHistory(id);
+  setHistory(next);
 
-    if (current?.id === id) {
-      const newCurrent = next[0] ?? null;
-      if (newCurrent) {
-        setCurrent(newCurrent);
-      } else {
-        localStorage.removeItem("macros");
-      }
-      setCurrentState(newCurrent);
+  if (current?.id === id) {
+    const newCurrent = next[0] ?? null;
+    if (newCurrent) {
+      await setCurrent(newCurrent);
     }
+    setCurrentState(newCurrent);
   }
+}
 
-  function wipeAll() {
-    clearHistory();
-    setHistory([]);
-    setCurrentState(null);
-  }
+async function wipeAll() {
+  await clearHistory();
+  setHistory([]);
+  setCurrentState(null);
+}
 
   const remaining = current
     ? {

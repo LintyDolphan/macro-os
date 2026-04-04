@@ -1,41 +1,51 @@
 import type { Macros } from "./recipes";
+import {
+  createMacroLogEntry,
+  deleteMacroLogEntry,
+  getMacroLogEntries,
+} from "./macro-db";
 
 export type MacroLogEntry = {
   id: string;
-  name: string;        // e.g. recipe name or "Meal plan"
-  macros: Macros;      // macros added
+  name: string;
+  macros: Macros;
   createdAt: string;
 };
 
-function keyForDate(dateISO: string) {
-  return `macroLog:${dateISO}`;
-}
-
-export function deleteLogEntry(date: string, id: string) {
-  const existing = loadLog(date);
-  const next = existing.filter((entry) => entry.id !== id);
-  localStorage.setItem(keyForDate(date), JSON.stringify(next));
-  return next;
+function mapRowToEntry(row: {
+  id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  created_at: string;
+}): MacroLogEntry {
+  return {
+    id: row.id,
+    name: row.name,
+    macros: {
+      calories: row.calories ?? 0,
+      protein: row.protein ?? 0,
+      carbs: row.carbs ?? 0,
+      fat: row.fat ?? 0,
+    },
+    createdAt: row.created_at,
+  };
 }
 
 export function todayISO() {
-  // YYYY-MM-DD
   return new Date().toISOString().slice(0, 10);
 }
 
-export function loadLog(dateISO = todayISO()): MacroLogEntry[] {
-  try {
-    const raw = localStorage.getItem(keyForDate(dateISO));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+export async function loadLog(dateISO = todayISO()): Promise<MacroLogEntry[]> {
+  const rows = await getMacroLogEntries(dateISO);
+  return rows.map(mapRowToEntry);
 }
 
-export function saveLog(entries: MacroLogEntry[], dateISO = todayISO()) {
-  localStorage.setItem(keyForDate(dateISO), JSON.stringify(entries));
+export async function deleteLogEntry(date: string, id: string) {
+  await deleteMacroLogEntry(id);
+  return await loadLog(date);
 }
 
 export function sumMacros(entries: MacroLogEntry[]): Macros {
@@ -50,7 +60,7 @@ export function sumMacros(entries: MacroLogEntry[]): Macros {
   );
 }
 
-export function addLogEntry(
+export async function addLogEntry(
   name: string,
   macros: {
     calories: number;
@@ -58,19 +68,15 @@ export function addLogEntry(
     carbs: number;
     fat: number;
   }
-) {
-  const date = todayISO();
-  const existing = loadLog(date);
-
-  const entry = {
-    id: crypto.randomUUID(),
+): Promise<MacroLogEntry> {
+  const row = await createMacroLogEntry({
+    date_key: todayISO(),
     name,
-    macros,
-    createdAt: new Date().toISOString(),
-  };
+    calories: macros.calories,
+    protein: macros.protein,
+    carbs: macros.carbs,
+    fat: macros.fat,
+  });
 
-  const next = [entry, ...existing];
-  localStorage.setItem(keyForDate(date), JSON.stringify(next));
-
-  return entry;
+  return mapRowToEntry(row);
 }

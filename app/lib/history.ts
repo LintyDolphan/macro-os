@@ -1,3 +1,10 @@
+import {
+  deleteMacroTarget,
+  getCurrentMacroTarget,
+  getMacroTargets,
+  saveMacroTarget,
+} from "./macro-db";
+
 export type MacroEntry = {
   id: string;
   calories: number;
@@ -15,58 +22,107 @@ export type MacroEntry = {
   };
 };
 
-const HISTORY_KEY = "macroHistory";
-const CURRENT_KEY = "macros";
 const MAX_ENTRIES = 10;
 
-export function loadHistory(): MacroEntry[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+function mapRowToMacroEntry(row: {
+  id: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  sex: "male" | "female" | null;
+  age: number | null;
+  activity: "sedentary" | "light" | "moderate" | "very" | "athlete" | null;
+  weight_lbs: number | null;
+  height_in: number | null;
+  goal: "cut" | "maintain" | "bulk" | null;
+  updated_at: string;
+}): MacroEntry {
+  const hasInputs =
+    row.sex !== null &&
+    row.age !== null &&
+    row.activity !== null &&
+    row.weight_lbs !== null &&
+    row.height_in !== null &&
+    row.goal !== null;
+
+  return {
+    id: row.id,
+    calories: row.calories,
+    protein: row.protein,
+    carbs: row.carbs,
+    fat: row.fat,
+    updatedAt: row.updated_at,
+    inputs: hasInputs
+      ? {
+          sex: row.sex!,
+          age: row.age!,
+          activity: row.activity!,
+          weightLbs: Number(row.weight_lbs),
+          heightIn: Number(row.height_in),
+          goal: row.goal!,
+        }
+      : undefined,
+  };
+}
+
+export async function loadHistory(): Promise<MacroEntry[]> {
+  const rows = await getMacroTargets();
+  return rows.slice(0, MAX_ENTRIES).map(mapRowToMacroEntry);
+}
+
+export async function saveHistory(entries: MacroEntry[]) {
+  return entries;
+}
+
+export async function addToHistory(entry: MacroEntry) {
+  await saveMacroTarget({
+    calories: entry.calories,
+    protein: entry.protein,
+    carbs: entry.carbs,
+    fat: entry.fat,
+    sex: entry.inputs?.sex ?? null,
+    age: entry.inputs?.age ?? null,
+    activity: entry.inputs?.activity ?? null,
+    weight_lbs: entry.inputs?.weightLbs ?? null,
+    height_in: entry.inputs?.heightIn ?? null,
+    goal: entry.inputs?.goal ?? null,
+    is_current: true,
+  });
+
+  return await loadHistory();
+}
+
+export async function setCurrent(entry: MacroEntry) {
+  await saveMacroTarget({
+    calories: entry.calories,
+    protein: entry.protein,
+    carbs: entry.carbs,
+    fat: entry.fat,
+    sex: entry.inputs?.sex ?? null,
+    age: entry.inputs?.age ?? null,
+    activity: entry.inputs?.activity ?? null,
+    weight_lbs: entry.inputs?.weightLbs ?? null,
+    height_in: entry.inputs?.heightIn ?? null,
+    goal: entry.inputs?.goal ?? null,
+    is_current: true,
+  });
+}
+
+export async function loadCurrent(): Promise<MacroEntry | null> {
+  const row = await getCurrentMacroTarget();
+  return row ? mapRowToMacroEntry(row) : null;
+}
+
+export async function deleteFromHistory(id: string) {
+  await deleteMacroTarget(id);
+  return await loadHistory();
+}
+
+export async function clearHistory() {
+  const entries = await loadHistory();
+
+  for (const entry of entries) {
+    await deleteMacroTarget(entry.id);
   }
-}
-
-export function saveHistory(entries: MacroEntry[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
-}
-
-export function addToHistory(entry: MacroEntry) {
-  const prev = loadHistory();
-  const next = [entry, ...prev].slice(0, MAX_ENTRIES);
-  saveHistory(next);
-
-  // Keep "current macros" synced to latest entry as well:
-  localStorage.setItem(CURRENT_KEY, JSON.stringify(entry));
-
-  return next;
-}
-
-export function setCurrent(entry: MacroEntry) {
-  localStorage.setItem(CURRENT_KEY, JSON.stringify(entry));
-}
-
-export function loadCurrent(): MacroEntry | null {
-  try {
-    const raw = localStorage.getItem(CURRENT_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-export function deleteFromHistory(id: string) {
-  const prev = loadHistory();
-  const next = prev.filter((e) => e.id !== id);
-  saveHistory(next);
-  return next;
-}
-
-export function clearHistory() {
-  localStorage.removeItem(HISTORY_KEY);
-  localStorage.removeItem(CURRENT_KEY);
 }

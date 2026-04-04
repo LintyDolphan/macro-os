@@ -33,7 +33,7 @@ import {
   type PlannerDayState,
   type PlannerStateByDay,
 } from "../lib/plannerStorage";
-import { loadGroceryList, saveGroceryList, type GroceryItem } from "../lib/grocery";
+import { loadGroceryList, saveGroceryList } from "../lib/grocery";
 import { addIngredientsToGrocery } from "../lib/mealplan";
 
 
@@ -288,7 +288,7 @@ async function undoLastLog() {
   const undo = lastLogUndo;
   if (!undo) return;
 
-  deleteLogEntry(undo.date, undo.entryId);
+  await deleteLogEntry(undo.date, undo.entryId);
 
   setPlannerByDay((prev) => {
     const next = { ...prev };
@@ -438,7 +438,8 @@ function collectPlannerIngredients() {
 
   return collected;
 }
-function generateGroceryFromPlanner() {
+
+async function generateGroceryFromPlanner() {
   try {
     const ingredients = collectPlannerIngredients();
 
@@ -448,10 +449,10 @@ function generateGroceryFromPlanner() {
       return;
     }
 
-    const currentList = loadGroceryList();
-    const next = addIngredientsToGrocery(currentList, ingredients);
+    const currentList = await loadGroceryList();
+    const next = await addIngredientsToGrocery(currentList, ingredients);
 
-    saveGroceryList(next);
+    await saveGroceryList(next);
 
     setPlannerErr(null);
     setPlannerMsg(`Added ${ingredients.length} ingredient lines to grocery ✅`);
@@ -492,7 +493,7 @@ async function markMealSlotLogged(slot: MealSlotKey) {
   const name =
     meal.servings > 1 ? `${meal.recipe.name} x${meal.servings}` : meal.recipe.name;
 
-  const entry = addLogEntry(name, macros);
+  const entry = await addLogEntry(name, macros);
 
   setLastLogUndo({
     entryId: entry.id,
@@ -555,7 +556,7 @@ async function markSnackLogged(id: string) {
   const name =
     snack.servings > 1 ? `${snack.recipe.name} x${snack.servings}` : snack.recipe.name;
 
-  const entry = addLogEntry(name, macros);
+  const entry = await addLogEntry(name, macros);
 
   setLastLogUndo({
     entryId: entry.id,
@@ -585,18 +586,45 @@ async function markSnackLogged(id: string) {
   }
 }
 
-function updateSnackServings(id: string, delta: number) {
+async function updateSnackServings(id: string, delta: number) {
+  const currentSnack = plannerByDay[selectedDay].snackSlots.find(
+    (snack) => snack.id === id
+  );
+
+  if (!currentSnack) return;
+
+  const nextServings = Math.max(1, currentSnack.servings + delta);
+
   setPlannerByDay((prev) => ({
     ...prev,
     [selectedDay]: {
       ...prev[selectedDay],
       snackSlots: prev[selectedDay].snackSlots.map((snack) =>
         snack.id === id
-          ? { ...snack, servings: Math.max(1, snack.servings + delta) }
+          ? { ...snack, servings: nextServings }
           : snack
       ),
     },
   }));
+
+  if (!currentSnack.recipe) return;
+
+  const result = await upsertPlannedMeal({
+    day_key: selectedDay,
+    slot_type: "snack",
+    slot_key: id,
+    recipe_id: currentSnack.recipe.isTemplate ? null : currentSnack.recipe.id,
+    template_id: currentSnack.recipe.isTemplate ? currentSnack.recipe.id : null,
+    servings: nextServings,
+    logged: currentSnack.logged,
+    sort_order: getSnackSortOrder(plannerByDay[selectedDay].snackSlots, id),
+  });
+
+  if (result.error) {
+    setPlannerMsg(null);
+    setPlannerErr(result.error);
+    return;
+  }
 }
 
  function addSnackSlot() {
@@ -724,7 +752,8 @@ async function updateMealSlotServings(slot: MealSlotKey, delta: number) {
     return;
   }
 }
-function generateGroceryFromAllDays() {
+
+async function generateGroceryFromAllDays() {
   try {
     const ingredients = collectAllPlannedIngredients();
 
@@ -734,10 +763,10 @@ function generateGroceryFromAllDays() {
       return;
     }
 
-    const currentList = loadGroceryList();
-    const next = addIngredientsToGrocery(currentList, ingredients);
+    const currentList = await loadGroceryList();
+    const next = await addIngredientsToGrocery(currentList, ingredients);
 
-    saveGroceryList(next);
+    await saveGroceryList(next);
 
     setPlannerErr(null);
     setPlannerMsg(`Added groceries from all planned days ✅`);
@@ -758,18 +787,18 @@ function generateGroceryFromAllDays() {
     setTab("recipes");
   }
 
-  function assignRecipeToActiveSlot(recipe: Recipe) {
-    if (!activeSlot) return;
+  async function assignRecipeToActiveSlot(recipe: Recipe) {
+  if (!activeSlot) return;
 
-    if (activeSlot.type === "meal") {
-      setMealSlotRecipe(activeSlot.key, recipe);
-    } else {
-      setSnackRecipe(activeSlot.key, recipe);
-    }
-
-    setActiveSlot(null);
-    setTab("planner");
+  if (activeSlot.type === "meal") {
+    await setMealSlotRecipe(activeSlot.key, recipe);
+  } else {
+    await setSnackRecipe(activeSlot.key, recipe);
   }
+
+  setActiveSlot(null);
+  setTab("planner");
+}
 
   function openViewer(recipe: Recipe, servings?: number) {
     setViewerRecipe(recipe);

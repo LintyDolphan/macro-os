@@ -40,8 +40,17 @@ export default function GroceryPage() {
   const [shareErr, setShareErr] = useState<string | null>(null);
 
   useEffect(() => {
-    setItems(loadGroceryList());
-  }, []);
+  async function init() {
+    try {
+      const data = await loadGroceryList();
+      setItems(data);
+    } catch (error) {
+      console.error("Failed to load grocery list:", error);
+    }
+  }
+
+  init();
+}, []);
 
   const { unbought, bought } = useMemo(() => {
     const unb = items.filter((i) => !i.bought);
@@ -63,37 +72,41 @@ export default function GroceryPage() {
     return groups;
   }, [unbought]);
 
-  function onAdd(e: React.FormEvent) {
+async function onAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
 
-    setItems((prev) =>
-      addGroceryItem(prev, {
-        name,
-        qty,
-        category,
-      })
-    );
+    const next = await addGroceryItem(items, {
+  name,
+  qty,
+  category,
+});
+setItems(next);
 
     setName("");
     setQty("");
   }
 
-  function onToggle(id: string) {
-    setItems((prev) => toggleBought(prev, id));
-  }
-
-  function onDelete(id: string) {
-    setItems((prev) => deleteItem(prev, id));
-  }
-
-  function onClearAll() {
-    clearAll();
-    setItems([]);
-  }
-function onClearBought() {
-  setItems((prev) => clearBought(prev));
+async function onToggle(id: string) {
+  const next = await toggleBought(items, id);
+  setItems(next);
 }
+
+async function onDelete(id: string) {
+  const next = await deleteItem(items, id);
+  setItems(next);
+}
+
+async function onClearAll() {
+  await clearAll();
+  setItems([]);
+}
+
+async function onClearBought() {
+  const next = await clearBought(items);
+  setItems(next);
+}
+
 async function onCopyShare() {
   try {
     const code = exportShareCode(items);
@@ -106,19 +119,37 @@ async function onCopyShare() {
   }
 }
 
-function onImportShare() {
+async function onImportShare() {
   try {
     const incoming = importShareCode(shareCode);
-    setItems((prev) => mergeGroceryLists(prev, incoming));
+    const merged = mergeGroceryLists(items, incoming);
+
+    // Clear existing DB list
+    await clearAll();
+
+    // Reinsert merged list
+    for (const item of merged) {
+      await addGroceryItem([], {
+        name: item.name,
+        qty: item.qty,
+        category: item.category,
+      });
+    }
+
+    const fresh = await loadGroceryList();
+    setItems(fresh);
+
     setShareMsg("Imported and merged ✅");
     setShareErr(null);
     setShareCode("");
+
     window.setTimeout(() => setShareMsg(null), 1500);
   } catch {
     setShareErr("Invalid share code.");
     setShareMsg(null);
   }
 }
+
 function byName(a: GroceryItem, b: GroceryItem) {
   return a.name.localeCompare(b.name);
 }

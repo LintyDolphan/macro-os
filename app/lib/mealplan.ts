@@ -85,12 +85,15 @@ export function aggregateIngredients(ingredients: Ingredient[]): Aggregated[] {
   return Array.from(map.values());
 }
 
-export function addIngredientsToGrocery(currentList: GroceryItem[], ingredients: Ingredient[]) {
+export async function addIngredientsToGrocery(
+  currentList: GroceryItem[],
+  ingredients: Ingredient[]
+) {
   const aggregated = aggregateIngredients(ingredients);
 
   let next = currentList;
   for (const a of aggregated) {
-    next = addGroceryItem(next, {
+    next = await addGroceryItem(next, {
       name: a.name,
       qty: a.qty,
       category: a.category,
