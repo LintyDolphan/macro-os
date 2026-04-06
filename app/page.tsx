@@ -270,7 +270,7 @@ if (redirecting || !authChecked) {
       <div className="text-sm text-gray-400">Loading...</div>
     </AppShell>
   );
-}
+} 
 
   const remaining = current
     ? {

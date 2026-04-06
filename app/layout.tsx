@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import SWRegister from "./sw-register";
 
@@ -6,7 +6,6 @@ export const metadata: Metadata = {
   title: "Macro OS",
   description: "Macros → meals → groceries",
   applicationName: "Macro OS",
-  themeColor: "#111827",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: "/icon-192.png",
@@ -17,6 +16,10 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Macro OS",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#111827",
 };
 
 export default function RootLayout({
@@ -33,3 +36,4 @@ export default function RootLayout({
     </html>
   );
 }
+
