@@ -1,5 +1,7 @@
 "use client";
 
+
+import type { HouseholdRow } from "./lib/households-db";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "./components/AppShell";
@@ -15,6 +17,7 @@ import {
 } from "./lib/history";
 import { useRouter } from "next/navigation";
 import { supabase } from "./lib/supabase/client";
+import { getMyHousehold } from "./lib/households-db";
 
 function formatUpdatedAt(iso?: string) {
   if (!iso) return "";
@@ -134,6 +137,7 @@ function QuickActionTile({
   );
 }
 export default function Dashboard() {
+  
   const [current, setCurrentState] = useState<MacroEntry | null>(null);
   const [history, setHistory] = useState<MacroEntry[]>([]);
   const [copied, setCopied] = useState(false);
@@ -159,39 +163,50 @@ export default function Dashboard() {
     carbs: 0,
     fat: 0,
   });
+  const [household, setHousehold] = useState<HouseholdRow | null>(null);
+const [householdLoading, setHouseholdLoading] = useState(true);
 
 useEffect(() => {
-  async function loadDashboardData() {
+  async function loadHousehold() {
     try {
-      const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession();
+      const data = await getMyHousehold();
+      setHousehold(data);
+    } catch (err) {
+      console.error("Failed to load household", err);
+      setHousehold(null);
+    } finally {
+      setHouseholdLoading(false);
+    }
+  }
 
-      if (sessionError) {
-        console.error("Failed to load session:", sessionError);
-        setRedirecting(true);
-        router.replace("/auth");
-        return;
-      }
+  async function loadDashboardData() {
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
 
-      const user = sessionData.session?.user ?? null;
+    if (sessionError) {
+      console.error("Failed to load session:", sessionError);
+      setRedirecting(true);
+      router.replace("/auth");
+      return;
+    }
 
-      if (!user) {
-        setRedirecting(true);
-        router.replace("/auth");
-        return;
-      }
+    const user = sessionData.session?.user ?? null;
 
+    if (!user) {
+      setRedirecting(true);
+      router.replace("/auth");
+      return;
+    }
+
+    try {
       const c = await loadCurrent();
       const h = await loadHistory();
       const todayEntries = await loadLog(todayISO());
-      const groceryItems = await loadGroceryList();
 
       setCurrentState(c);
       setHistory(h);
-
       setTodayTotals(sumMacros(todayEntries));
       setTodayLogCount(todayEntries.length);
-      setGroceryCount(groceryItems.filter((item) => !item.bought).length);
 
       setRecentMeals(
         todayEntries.slice(0, 3).map((entry) => ({
@@ -204,24 +219,34 @@ useEffect(() => {
         }))
       );
 
-      setGroceryPreview(
-        groceryItems
-          .filter((item) => !item.bought)
-          .slice(0, 3)
-          .map((item) => ({
-            id: item.id,
-            name: item.name,
-          }))
-      );
+      try {
+        const groceryItems = await loadGroceryList();
+
+        setGroceryCount(groceryItems.filter((item) => !item.bought).length);
+
+        setGroceryPreview(
+          groceryItems
+            .filter((item) => !item.bought)
+            .slice(0, 3)
+            .map((item) => ({
+              id: item.id,
+              name: item.name,
+            }))
+        );
+      } catch (groceryError) {
+        console.error("Failed to load grocery preview:", groceryError);
+        setGroceryCount(0);
+        setGroceryPreview([]);
+      }
 
       setAuthChecked(true);
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
-      setRedirecting(true);
-      router.replace("/auth");
+      setAuthChecked(true);
     }
   }
 
+  loadHousehold();
   loadDashboardData();
 }, [router]);
 

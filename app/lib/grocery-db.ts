@@ -1,10 +1,10 @@
 import { supabase } from "./supabase/client";
 import type { GroceryCategory } from "./grocery";
-import { getMyHousehold } from "./households-db";
 
 export type GroceryItemRow = {
   id: string;
   user_id: string;
+  household_id?: string | null;
   name: string;
   qty: string | null;
   category: GroceryCategory;
@@ -20,20 +20,24 @@ export type CreateGroceryItemInput = {
   category: GroceryCategory;
 };
 
-async function getCurrentHousehold() {
-  const household = await getMyHousehold();
-  if (!household) throw new Error("User is not in a household");
-  return household;
+async function getCurrentUser() {
+  const { data, error } = await supabase.auth.getSession();
+
+  if (error) throw error;
+
+  const user = data.session?.user;
+  if (!user) throw new Error("User not signed in");
+
+  return user;
 }
 
-
 export async function getGroceryItems() {
-  const household = await getCurrentHousehold();
+  const user = await getCurrentUser();
 
   const { data, error } = await supabase
     .from("grocery_items")
     .select("*")
-    .eq("household_id", household.id)
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -42,12 +46,13 @@ export async function getGroceryItems() {
 }
 
 export async function createGroceryItem(input: CreateGroceryItemInput) {
-  const household = await getCurrentHousehold();
+  const user = await getCurrentUser();
 
   const { data, error } = await supabase
     .from("grocery_items")
     .insert({
-      household_id: household.id,
+      user_id: user.id,
+      household_id: null,
       name: input.name.trim(),
       qty: input.qty?.trim() || null,
       category: input.category,
@@ -63,7 +68,7 @@ export async function createGroceryItem(input: CreateGroceryItemInput) {
 }
 
 export async function updateGroceryItemBought(itemId: string, bought: boolean) {
-  const household = await getCurrentHousehold();
+  const user = await getCurrentUser();
 
   const { data, error } = await supabase
     .from("grocery_items")
@@ -72,7 +77,7 @@ export async function updateGroceryItemBought(itemId: string, bought: boolean) {
       bought_at: bought ? new Date().toISOString() : null,
     })
     .eq("id", itemId)
-    .eq("household_id", household.id)
+    .eq("user_id", user.id)
     .select()
     .single();
 
@@ -82,36 +87,36 @@ export async function updateGroceryItemBought(itemId: string, bought: boolean) {
 }
 
 export async function deleteGroceryItem(itemId: string) {
-  const household = await getCurrentHousehold();
+  const user = await getCurrentUser();
 
   const { error } = await supabase
     .from("grocery_items")
     .delete()
     .eq("id", itemId)
-    .eq("household_id", household.id);
+    .eq("user_id", user.id);
 
   if (error) throw error;
 }
 
 export async function clearBoughtGroceryItems() {
-  const household = await getCurrentHousehold();
+  const user = await getCurrentUser();
 
   const { error } = await supabase
     .from("grocery_items")
     .delete()
-    .eq("household_id", household.id)
+    .eq("user_id", user.id)
     .eq("bought", true);
 
   if (error) throw error;
 }
 
 export async function clearAllGroceryItems() {
-  const household = await getCurrentHousehold();
+  const user = await getCurrentUser();
 
   const { error } = await supabase
     .from("grocery_items")
     .delete()
-    .eq("household_id", household.id);
+    .eq("user_id", user.id);
 
   if (error) throw error;
 }

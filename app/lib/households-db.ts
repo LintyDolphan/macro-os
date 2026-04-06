@@ -175,3 +175,53 @@ export async function joinHouseholdByCode(code: string) {
 
   return household as HouseholdRow;
 }
+
+export async function leaveMyHousehold() {
+  const user = await getCurrentUser();
+
+  const { data: member, error: memberError } = await supabase
+    .from("household_members")
+    .select("id, household_id, role")
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (memberError) throw memberError;
+  if (!member) {
+    throw new Error("User is not in a household");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("household_members")
+    .delete()
+    .eq("id", member.id);
+
+  if (deleteError) throw deleteError;
+
+  return { success: true };
+}
+
+export async function leaveHousehold() {
+  const user = await getCurrentUser();
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("household_members")
+    .select("id")
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  if (!membership) {
+    throw new Error("User is not in a household");
+  }
+
+  const { error: deleteError } = await supabase
+    .from("household_members")
+    .delete()
+    .eq("id", membership.id);
+
+  if (deleteError) throw deleteError;
+
+  return true;
+}
