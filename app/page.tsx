@@ -13,6 +13,8 @@ import {
   deleteFromHistory,
   clearHistory,
 } from "./lib/history";
+import { useRouter } from "next/navigation";
+import { supabase } from "./lib/supabase/client";
 
 function formatUpdatedAt(iso?: string) {
   if (!iso) return "";
@@ -138,6 +140,9 @@ export default function Dashboard() {
   const [todayLogCount, setTodayLogCount] = useState(0);
   const [groceryCount, setGroceryCount] = useState(0);
   const [groceryPreview, setGroceryPreview] = useState<{ id: string; name: string }[]>([]); 
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [recentMeals, setRecentMeals] = useState<
   {
     id: string;
@@ -155,9 +160,27 @@ export default function Dashboard() {
     fat: 0,
   });
 
- useEffect(() => {
+useEffect(() => {
   async function loadDashboardData() {
     try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError) {
+        console.error("Failed to load session:", sessionError);
+        setRedirecting(true);
+        router.replace("/auth");
+        return;
+      }
+
+      const user = sessionData.session?.user ?? null;
+
+      if (!user) {
+        setRedirecting(true);
+        router.replace("/auth");
+        return;
+      }
+
       const c = await loadCurrent();
       const h = await loadHistory();
       const todayEntries = await loadLog(todayISO());
@@ -190,13 +213,17 @@ export default function Dashboard() {
             name: item.name,
           }))
       );
+
+      setAuthChecked(true);
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
+      setRedirecting(true);
+      router.replace("/auth");
     }
   }
 
   loadDashboardData();
-}, []);
+}, [router]);
 
 
   function copyToClipboard() {
@@ -235,6 +262,14 @@ async function wipeAll() {
   await clearHistory();
   setHistory([]);
   setCurrentState(null);
+}
+
+if (redirecting || !authChecked) {
+  return (
+    <AppShell title="Dashboard" subtitle="Your daily nutrition overview">
+      <div className="text-sm text-gray-400">Loading...</div>
+    </AppShell>
+  );
 }
 
   const remaining = current
@@ -567,5 +602,6 @@ async function wipeAll() {
         </DashboardCard>
       </div>
     </AppShell>
+    
   );
 }

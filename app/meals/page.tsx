@@ -35,6 +35,9 @@ import {
 } from "../lib/plannerStorage";
 import { loadGroceryList, saveGroceryList } from "../lib/grocery";
 import { addIngredientsToGrocery } from "../lib/mealplan";
+import { useRouter } from "next/navigation";
+import { supabase } from "../lib/supabase/client";
+
 
 
 type PlannerTab = "planner" | "recipes" | "create";
@@ -188,7 +191,9 @@ export default function MealsPage() {
 
   const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
   const [search, setSearch] = useState("");
-
+const [authChecked, setAuthChecked] = useState(false);
+const [redirecting, setRedirecting] = useState(false);
+const router = useRouter();
 
 const [selectedDay, setSelectedDay] = useState<PlannerDayKey>("today");
 
@@ -247,6 +252,23 @@ const [lastLogUndo, setLastLogUndo] = useState<
 useEffect(() => {
   async function init() {
     try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+
+      if (sessionError) {
+        setRedirecting(true);
+        router.replace("/auth");
+        return;
+      }
+
+      const user = sessionData.session?.user ?? null;
+
+      if (!user) {
+        setRedirecting(true);
+        router.replace("/auth");
+        return;
+      }
+
       const recipes = await loadRecipes();
       setMyRecipes(recipes);
 
@@ -256,18 +278,19 @@ useEffect(() => {
         [...TEMPLATE_RECIPES, ...recipes]
       );
       setPlannerByDay(mappedPlanner);
+
+      setAuthChecked(true);
     } catch (error) {
       console.error("Failed to initialize meals page:", error);
+      setRedirecting(true);
+      router.replace("/auth");
     }
   }
 
   init();
-}, []);
+}, [router]);
 
 
-// useEffect(() => {
-//   saveMealPlannerState(plannerByDay);
-// }, [plannerByDay]);
 
   const allRecipes = useMemo(() => [...TEMPLATE_RECIPES, ...myRecipes], [myRecipes]);
 
@@ -959,15 +982,23 @@ async function onImportRecipe() {
   }
 }
 
-  const activeSlotLabel = useMemo(() => {
-    if (!activeSlot) return null;
-    if (activeSlot.type === "meal") {
-      return activeSlot.key.charAt(0).toUpperCase() + activeSlot.key.slice(1);
-    }
+if (redirecting || !authChecked) {
+  return (
+    <AppShell title="Meals" subtitle="Plan your macros">
+      <div className="text-sm text-gray-400">Loading...</div>
+    </AppShell>
+  );
+}
 
-    const snackIndex = snackSlots.findIndex((snack) => snack.id === activeSlot.key);
-    return snackIndex >= 0 ? `Snack ${snackIndex + 1}` : "Snack";
-  }, [activeSlot, snackSlots]);
+const activeSlotLabel = (() => {
+  if (!activeSlot) return null;
+  if (activeSlot.type === "meal") {
+    return activeSlot.key.charAt(0).toUpperCase() + activeSlot.key.slice(1);
+  }
+
+  const snackIndex = snackSlots.findIndex((snack) => snack.id === activeSlot.key);
+  return snackIndex >= 0 ? `Snack ${snackIndex + 1}` : "Snack";
+})();
 
   return (
     <AppShell title="Meals" subtitle="Plan your macros">
