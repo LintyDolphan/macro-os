@@ -5,7 +5,10 @@ import {
   deleteGroceryItem,
   getGroceryItems,
   updateGroceryItemBought,
+  type GroceryMode,
 } from "./grocery-db";
+
+export type { GroceryMode };
 
 export type GroceryCategory =
   | "produce"
@@ -46,23 +49,26 @@ function mapRowToGroceryItem(row: {
   };
 }
 
-export async function loadGroceryList(): Promise<GroceryItem[]> {
-  const rows = await getGroceryItems();
+export async function loadGroceryList(mode: GroceryMode = "personal"): Promise<GroceryItem[]> {
+  const rows = await getGroceryItems(mode);
   return rows.map(mapRowToGroceryItem);
 }
 
-export async function saveGroceryList(items: GroceryItem[]) {
-  await clearAllGroceryItems();
+export async function saveGroceryList(items: GroceryItem[], mode: GroceryMode = "personal") {
+  await clearAllGroceryItems(mode);
 
   for (const item of items) {
-    await createGroceryItem({
-      name: item.name,
-      qty: item.qty ?? null,
-      category: item.category,
-    });
+    await createGroceryItem(
+      {
+        name: item.name,
+        qty: item.qty ?? null,
+        category: item.category,
+      },
+      mode
+    );
 
     if (item.bought) {
-      const fresh = await loadGroceryList();
+      const fresh = await loadGroceryList(mode);
       const inserted = fresh.find(
         (it) =>
           it.name === item.name &&
@@ -71,47 +77,62 @@ export async function saveGroceryList(items: GroceryItem[]) {
       );
 
       if (inserted) {
-        await updateGroceryItemBought(inserted.id, true);
+        await updateGroceryItemBought(inserted.id, true, mode);
       }
     }
   }
 
-  return await loadGroceryList();
+  return await loadGroceryList(mode);
 }
 
 export async function addGroceryItem(
   items: GroceryItem[],
-  item: Omit<GroceryItem, "id" | "createdAt" | "bought" | "boughtAt">
+  item: Omit<GroceryItem, "id" | "createdAt" | "bought" | "boughtAt">,
+  mode: GroceryMode = "personal"
 ) {
-  await createGroceryItem({
-    name: item.name,
-    qty: item.qty ?? null,
-    category: item.category,
-  });
+  await createGroceryItem(
+    {
+      name: item.name,
+      qty: item.qty ?? null,
+      category: item.category,
+    },
+    mode
+  );
 
-  return await loadGroceryList();
+  return await loadGroceryList(mode);
 }
 
-export async function toggleBought(items: GroceryItem[], id: string) {
+export async function toggleBought(
+  items: GroceryItem[],
+  id: string,
+  mode: GroceryMode = "personal"
+) {
   const current = items.find((it) => it.id === id);
   if (!current) return items;
 
-  await updateGroceryItemBought(id, !current.bought);
-  return await loadGroceryList();
+  await updateGroceryItemBought(id, !current.bought, mode);
+  return await loadGroceryList(mode);
 }
 
-export async function deleteItem(items: GroceryItem[], id: string) {
-  await deleteGroceryItem(id);
-  return await loadGroceryList();
+export async function deleteItem(
+  items: GroceryItem[],
+  id: string,
+  mode: GroceryMode = "personal"
+) {
+  await deleteGroceryItem(id, mode);
+  return await loadGroceryList(mode);
 }
 
-export async function clearAll() {
-  await clearAllGroceryItems();
+export async function clearAll(mode: GroceryMode = "personal") {
+  await clearAllGroceryItems(mode);
 }
 
-export async function clearBought(items: GroceryItem[]) {
-  await clearBoughtGroceryItems();
-  return await loadGroceryList();
+export async function clearBought(
+  items: GroceryItem[],
+  mode: GroceryMode = "personal"
+) {
+  await clearBoughtGroceryItems(mode);
+  return await loadGroceryList(mode);
 }
 
 export function exportShareCode(items: GroceryItem[]) {

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   GroceryCategory,
   GroceryItem,
+  GroceryMode,
   addGroceryItem,
   clearAll,
   clearBought,
@@ -15,6 +16,7 @@ import {
   importShareCode,
   mergeGroceryLists,
 } from "../lib/grocery";
+import { getMyHousehold, type HouseholdRow } from "../lib/households-db";
 import Link from "next/link";
 
 const CATEGORY_LABELS: Record<GroceryCategory, string> = {
@@ -38,14 +40,23 @@ export default function GroceryPage() {
   const [shareCode, setShareCode] = useState("");
   const [shareMsg, setShareMsg] = useState<string | null>(null);
   const [shareErr, setShareErr] = useState<string | null>(null);
+  const [mode, setMode] = useState<GroceryMode>("personal");
+const [household, setHousehold] = useState<HouseholdRow | null>(null);
+const [modeError, setModeError] = useState<string | null>(null);
 
-  useEffect(() => {
+useEffect(() => {
   async function init() {
     try {
-      const data = await loadGroceryList();
+      const currentHousehold = await getMyHousehold();
+      setHousehold(currentHousehold);
+
+      const data = await loadGroceryList("personal");
       setItems(data);
+      setMode("personal");
+      setModeError(null);
     } catch (error) {
       console.error("Failed to load grocery list:", error);
+      setModeError("Failed to load grocery list.");
     }
   }
 
@@ -72,15 +83,27 @@ export default function GroceryPage() {
     return groups;
   }, [unbought]);
 
+  async function loadForMode(nextMode: GroceryMode) {
+  try {
+    const data = await loadGroceryList(nextMode);
+    setItems(data);
+    setMode(nextMode);
+    setModeError(null);
+  } catch (error) {
+    console.error(`Failed to load ${nextMode} grocery list:`, error);
+    setModeError(
+      nextMode === "household"
+        ? "Failed to load household grocery list."
+        : "Failed to load personal grocery list."
+    );
+  }
+}
+
 async function onAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
 
-    const next = await addGroceryItem(items, {
-  name,
-  qty,
-  category,
-});
+const next = await addGroceryItem(items, { name, qty, category }, mode);
 setItems(next);
 
     setName("");
@@ -88,22 +111,22 @@ setItems(next);
   }
 
 async function onToggle(id: string) {
-  const next = await toggleBought(items, id);
+const next = await toggleBought(items, id, mode);
   setItems(next);
 }
 
 async function onDelete(id: string) {
-  const next = await deleteItem(items, id);
+  const next = await deleteItem(items, id, mode);
   setItems(next);
 }
 
 async function onClearAll() {
-  await clearAll();
+  await clearAll(mode);
   setItems([]);
 }
 
 async function onClearBought() {
-  const next = await clearBought(items);
+  const next = await clearBought(items, mode);
   setItems(next);
 }
 
@@ -129,14 +152,10 @@ async function onImportShare() {
 
     // Reinsert merged list
     for (const item of merged) {
-      await addGroceryItem([], {
-        name: item.name,
-        qty: item.qty,
-        category: item.category,
-      });
+      await addGroceryItem([], { name: item.name, qty: item.qty, category: item.category }, mode);
     }
 
-    const fresh = await loadGroceryList();
+    const fresh = await loadGroceryList(mode);
     setItems(fresh);
 
     setShareMsg("Imported and merged ✅");
@@ -150,16 +169,53 @@ async function onImportShare() {
   }
 }
 
-function byName(a: GroceryItem, b: GroceryItem) {
-  return a.name.localeCompare(b.name);
-}
-
   return (
     <AppShell title="Grocery" subtitle="Manage your shopping list">
       <div className="max-w-md mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Grocery List</h1>
         </div>
+        <div className="mb-4 rounded-lg border border-gray-700 bg-gray-800 p-3">
+  <div className="flex gap-2">
+    <button
+      type="button"
+      onClick={() => loadForMode("personal")}
+      className={`flex-1 rounded py-2 text-sm font-semibold ${
+        mode === "personal"
+          ? "bg-blue-600 text-white"
+          : "bg-gray-900 text-gray-300 hover:bg-gray-950"
+      }`}
+    >
+      Personal
+    </button>
+
+    {household && (
+      <button
+        type="button"
+        onClick={() => loadForMode("household")}
+        className={`flex-1 rounded py-2 text-sm font-semibold ${
+          mode === "household"
+            ? "bg-blue-600 text-white"
+            : "bg-gray-900 text-gray-300 hover:bg-gray-950"
+        }`}
+      >
+        Household
+      </button>
+    )}
+  </div>
+
+  <p className="mt-2 text-sm text-gray-400">
+    {mode === "personal"
+      ? "This is your personal grocery list."
+      : "This is your shared household grocery list."}
+  </p>
+
+  {modeError && (
+    <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+      {modeError}
+    </div>
+  )}
+</div>
 <div className="bg-gray-800 p-4 rounded-lg shadow-lg mb-4 border border-gray-700">
   <h2 className="text-lg font-semibold">Share List</h2>
   <p className="text-sm text-gray-300 mt-1">
