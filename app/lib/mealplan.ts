@@ -1,4 +1,4 @@
-import type { GroceryItem } from "./grocery";
+import type { GroceryItem, GroceryMode } from "./grocery";
 import { addGroceryItem } from "./grocery";
 import type { Ingredient } from "./recipes";
 
@@ -22,8 +22,6 @@ export function scaleQty(qty: string | undefined, factor: number) {
   const raw = qty.trim();
   if (!raw) return undefined;
 
-  // Match first number, optionally a range "1-2" / "1–2"
-  // Groups: [1]=n1, [3]=n2 (optional), [4]=rest of string (units/words)
   const m = raw.match(
     /^\s*([0-9]*\.?[0-9]+)\s*([\-–]\s*([0-9]*\.?[0-9]+))?\s*(.*)$/
   );
@@ -40,7 +38,6 @@ export function scaleQty(qty: string | undefined, factor: number) {
   const scaled2 = n2 !== null && Number.isFinite(n2) ? n2 * factor : null;
 
   const fmt = (n: number) => {
-    // Keep it readable: 3.0 -> 3, 3.5 stays 3.5
     const rounded = Math.round(n * 100) / 100;
     return Number.isInteger(rounded) ? String(rounded) : String(rounded);
   };
@@ -53,7 +50,6 @@ export function scaleQty(qty: string | undefined, factor: number) {
   return `${fmt(scaled1)}${rest ? " " + rest : ""}`.trim();
 }
 
-// Very simple qty merge: if different qty strings, join.
 function mergeQty(a?: string, b?: string) {
   if (!a) return b;
   if (!b) return a;
@@ -87,17 +83,22 @@ export function aggregateIngredients(ingredients: Ingredient[]): Aggregated[] {
 
 export async function addIngredientsToGrocery(
   currentList: GroceryItem[],
-  ingredients: Ingredient[]
+  ingredients: Ingredient[],
+  mode: GroceryMode = "personal"
 ) {
   const aggregated = aggregateIngredients(ingredients);
 
   let next = currentList;
   for (const a of aggregated) {
-    next = await addGroceryItem(next, {
-      name: a.name,
-      qty: a.qty,
-      category: a.category,
-    });
+    next = await addGroceryItem(
+      next,
+      {
+        name: a.name,
+        qty: a.qty,
+        category: a.category,
+      },
+      mode
+    );
   }
 
   return next;

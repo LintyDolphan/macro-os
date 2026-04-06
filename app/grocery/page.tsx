@@ -19,6 +19,10 @@ import {
 import { getMyHousehold, type HouseholdRow } from "../lib/households-db";
 import Link from "next/link";
 
+
+
+
+
 const CATEGORY_LABELS: Record<GroceryCategory, string> = {
   produce: "Produce",
   dairy: "Dairy",
@@ -43,6 +47,7 @@ export default function GroceryPage() {
   const [mode, setMode] = useState<GroceryMode>("personal");
 const [household, setHousehold] = useState<HouseholdRow | null>(null);
 const [modeError, setModeError] = useState<string | null>(null);
+const [actionError, setActionError] = useState<string | null>(null);
 
 useEffect(() => {
   async function init() {
@@ -100,15 +105,32 @@ useEffect(() => {
 }
 
 async function onAdd(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
+  e.preventDefault();
+  if (!name.trim()) return;
 
-const next = await addGroceryItem(items, { name, qty, category }, mode);
-setItems(next);
+  setActionError(null);
 
+  try {
+    const next = await addGroceryItem(
+      items,
+      {
+        name,
+        qty,
+        category,
+      },
+      mode
+    );
+
+    setItems(next);
     setName("");
     setQty("");
+  } catch (error) {
+    console.error("Failed to add grocery item:", error);
+    setActionError(
+      error instanceof Error ? error.message : "Failed to add grocery item."
+    );
   }
+}
 
 async function onToggle(id: string) {
 const next = await toggleBought(items, id, mode);
@@ -176,6 +198,13 @@ async function onImportShare() {
           <h1 className="text-2xl font-bold">Grocery List</h1>
         </div>
         <div className="mb-4 rounded-lg border border-gray-700 bg-gray-800 p-3">
+
+          {actionError && (
+  <div className="mb-4 rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+    {actionError}
+  </div>
+)}
+
   <div className="flex gap-2">
     <button
       type="button"

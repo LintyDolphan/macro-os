@@ -33,7 +33,8 @@ import {
   type PlannerDayState,
   type PlannerStateByDay,
 } from "../lib/plannerStorage";
-import { loadGroceryList, saveGroceryList } from "../lib/grocery";
+import { loadGroceryList, saveGroceryList, type GroceryMode } from "../lib/grocery";
+import { getMyHousehold, type HouseholdRow } from "../lib/households-db";
 import { addIngredientsToGrocery } from "../lib/mealplan";
 import { useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase/client";
@@ -194,6 +195,8 @@ export default function MealsPage() {
 const [authChecked, setAuthChecked] = useState(false);
 const [redirecting, setRedirecting] = useState(false);
 const router = useRouter();
+const [groceryMode, setGroceryMode] = useState<GroceryMode>("personal");
+const [household, setHousehold] = useState<HouseholdRow | null>(null);
 
 const [selectedDay, setSelectedDay] = useState<PlannerDayKey>("today");
 
@@ -268,6 +271,10 @@ useEffect(() => {
         router.replace("/auth");
         return;
       }
+
+      const currentHousehold = await getMyHousehold();
+setHousehold(currentHousehold);
+setGroceryMode("personal");
 
       const recipes = await loadRecipes();
       setMyRecipes(recipes);
@@ -472,13 +479,17 @@ async function generateGroceryFromPlanner() {
       return;
     }
 
-    const currentList = await loadGroceryList();
-    const next = await addIngredientsToGrocery(currentList, ingredients);
+const currentList = await loadGroceryList(groceryMode);
+const next = await addIngredientsToGrocery(currentList, ingredients, groceryMode);
 
-    await saveGroceryList(next);
+await saveGroceryList(next, groceryMode);
 
-    setPlannerErr(null);
-    setPlannerMsg(`Added ${ingredients.length} ingredient lines to grocery ✅`);
+setPlannerErr(null);
+setPlannerMsg(
+  `Added ${ingredients.length} ingredient lines to ${
+    groceryMode === "household" ? "household" : "personal"
+  } grocery ✅`
+);
 
     window.setTimeout(() => setPlannerMsg(null), 1800);
   } catch {
@@ -786,13 +797,18 @@ async function generateGroceryFromAllDays() {
       return;
     }
 
-    const currentList = await loadGroceryList();
-    const next = await addIngredientsToGrocery(currentList, ingredients);
+const currentList = await loadGroceryList(groceryMode);
+const next = await addIngredientsToGrocery(currentList, ingredients, groceryMode);
 
-    await saveGroceryList(next);
+await saveGroceryList(next, groceryMode);
 
-    setPlannerErr(null);
-    setPlannerMsg(`Added groceries from all planned days ✅`);
+setPlannerErr(null);
+setPlannerMsg(
+  `Added groceries from all planned days to ${
+    groceryMode === "household" ? "household" : "personal"
+  } grocery ✅`
+);
+
     window.setTimeout(() => setPlannerMsg(null), 1800);
   } catch {
     setPlannerMsg(null);
@@ -1137,13 +1153,48 @@ const activeSlotLabel = (() => {
     </div>
   )}
 
+<div className="mt-3 rounded-xl bg-gray-900 p-3">
+  <div className="text-sm font-semibold text-white">Grocery Destination</div>
+  <p className="mt-1 text-xs text-gray-400">
+    Choose whether generated groceries go to your personal list or shared household list.
+  </p>
+
+  <div className="mt-3 flex gap-2">
+    <button
+      type="button"
+      onClick={() => setGroceryMode("personal")}
+      className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
+        groceryMode === "personal"
+          ? "bg-emerald-600 text-white"
+          : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+      }`}
+    >
+      Personal
+    </button>
+
+    {household && (
+      <button
+        type="button"
+        onClick={() => setGroceryMode("household")}
+        className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
+          groceryMode === "household"
+            ? "bg-emerald-600 text-white"
+            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+        }`}
+      >
+        Household
+      </button>
+    )}
+  </div>
+</div>
+
  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
   <button
     type="button"
     onClick={generateGroceryFromPlanner}
     className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
   >
-    Generate Grocery for This Day
+    Generate This Day to {groceryMode === "household" ? "Household" : "Personal"}
   </button>
 
   <button
@@ -1151,7 +1202,7 @@ const activeSlotLabel = (() => {
     onClick={generateGroceryFromAllDays}
     className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
   >
-    Generate Grocery for All Days
+    Generate All Days to {groceryMode === "household" ? "Household" : "Personal"}
   </button>
 
 </div>
