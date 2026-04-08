@@ -162,7 +162,7 @@ function formatIngredientQty(amount: number | null, unit: string | null) {
   return undefined;
 }
 
-function formatQuantityGrams(quantityGrams: number | null | undefined) {
+function formatQuantityGrams(quantityGrams: number | string | null | undefined) {
   if (quantityGrams == null || !Number.isFinite(Number(quantityGrams))) return undefined;
   const rounded = Math.round(Number(quantityGrams) * 100) / 100;
   return `${rounded}g`;
