@@ -6,6 +6,8 @@ export type RecipeIngredientInput = {
   unit?: string | null
   notes?: string | null
   sort_order: number
+  ingredient_id?: string | null
+  quantity_g?: number | null
 }
 
 export type RecipeInput = {
@@ -29,7 +31,44 @@ export async function getCurrentUser() {
 }
 
 export async function getRecipes() {
-  const { data, error } = await supabase
+  const enhancedQuery = supabase
+    .from('recipes')
+    .select(`
+      *,
+      recipe_ingredients (
+        id,
+        recipe_id,
+        name,
+        amount,
+        unit,
+        notes,
+        sort_order,
+        ingredient_id,
+        quantity_g,
+        ingredient:ingredients (
+          id,
+          name,
+          calories_per_100g,
+          protein_per_100g,
+          carbs_per_100g,
+          fat_per_100g,
+          visibility,
+          verification_status
+        )
+      )
+    `)
+    .order('created_at', { ascending: false })
+    .order('sort_order', { foreignTable: 'recipe_ingredients', ascending: true })
+
+  const { data, error } = await enhancedQuery
+
+  if (!error) {
+    return data
+  }
+
+  console.warn("Falling back to legacy recipe query.", error.message)
+
+  const { data: legacyData, error: legacyError } = await supabase
     .from('recipes')
     .select(`
       *,
@@ -46,9 +85,9 @@ export async function getRecipes() {
     .order('created_at', { ascending: false })
     .order('sort_order', { foreignTable: 'recipe_ingredients', ascending: true })
 
-  if (error) throw error
+  if (legacyError) throw legacyError
 
-  return data
+  return legacyData
 }
 
 export async function createRecipe(input: RecipeInput) {
@@ -87,6 +126,8 @@ export async function createRecipe(input: RecipeInput) {
           unit: ingredient.unit ?? null,
           notes: ingredient.notes ?? null,
           sort_order: ingredient.sort_order,
+          ingredient_id: ingredient.ingredient_id ?? null,
+          quantity_g: ingredient.quantity_g ?? null,
         }))
       )
 
@@ -131,6 +172,8 @@ export async function updateRecipe(recipeId: string, input: RecipeInput) {
           unit: ingredient.unit ?? null,
           notes: ingredient.notes ?? null,
           sort_order: ingredient.sort_order,
+          ingredient_id: ingredient.ingredient_id ?? null,
+          quantity_g: ingredient.quantity_g ?? null,
         }))
       )
 

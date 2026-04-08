@@ -6,13 +6,13 @@ import {
   upsertPlannedMeal,
   deletePlannedMealBySlot,
   setPlannedMealLogged,
-} from "../lib/planner-db";
+} from "../../lib/planner-db";
 import {
   getSnackSortOrder,
   mapPlannedMealsToPlannerState,
-} from "../lib/planner-mappers";
+} from "../../lib/planner-mappers";
 import { useEffect, useMemo, useState } from "react";
-import AppShell from "../components/AppShell";
+import AppShell from "../../components/AppShell";
 import {
   TEMPLATE_RECIPES,
   addRecipe,
@@ -23,8 +23,8 @@ import {
   mergeImportedRecipe,
   type Ingredient,
   type Recipe,
-} from "../lib/recipes";
-import { addLogEntry, deleteLogEntry, todayISO } from "../lib/macroLog";
+} from "../../lib/recipes";
+import { addLogEntry, deleteLogEntry, todayISO } from "../../lib/macroLog";
 import {
   type MealSlot,
   type MealSlotKey,
@@ -32,19 +32,19 @@ import {
   type PlannerDayKey,
   type PlannerDayState,
   type PlannerStateByDay,
-} from "../lib/plannerStorage";
-import { loadGroceryList, saveGroceryList, type GroceryMode } from "../lib/grocery";
-import { getMyHousehold, type HouseholdRow } from "../lib/households-db";
-import { addIngredientsToGrocery } from "../lib/mealplan";
+} from "../../lib/plannerStorage";
+import { loadGroceryList, saveGroceryList, type GroceryMode } from "../../lib/grocery";
+import { getMyHousehold, type HouseholdRow } from "../../lib/households-db";
+import { addIngredientsToGrocery } from "../../lib/mealplan";
 import { useRouter } from "next/navigation";
-import { supabase } from "../lib/supabase/client";
+import { supabase } from "../../lib/supabase/client";
 import {
   createIngredient,
   deleteIngredient,
   listVisibleIngredients,
   updateIngredient as updateIngredientRecord,
   type IngredientRecord as IngredientLibraryItem,
-} from "../lib/supabase/ingredients-db";
+} from "../../lib/supabase/ingredients-db";
 
 
 
@@ -99,19 +99,193 @@ function normalizeIngredientName(value: string) {
   return value.trim().toLowerCase();
 }
 
-function parseQuantityToGrams(qty?: string) {
+const WEIGHT_UNIT_TO_GRAMS: Record<string, number> = {
+  g: 1,
+  gram: 1,
+  grams: 1,
+  kg: 1000,
+  kilogram: 1000,
+  kilograms: 1000,
+  oz: 28.3495,
+  ounce: 28.3495,
+  ounces: 28.3495,
+  lb: 453.592,
+  lbs: 453.592,
+  pound: 453.592,
+  pounds: 453.592,
+};
+
+type IngredientVolumeConversion = {
+  ingredientKeywords: string[];
+  cup: number;
+  tbsp: number;
+  tsp: number;
+};
+
+type IngredientConversionProfile = {
+  cup_g: number | null;
+  tbsp_g: number | null;
+  tsp_g: number | null;
+  piece_g: number | null;
+  piece_label: string | null;
+};
+
+const VOLUME_CONVERSIONS: IngredientVolumeConversion[] = [
+  { ingredientKeywords: ["water"], cup: 236.59, tbsp: 14.79, tsp: 4.93 },
+  { ingredientKeywords: ["milk"], cup: 245, tbsp: 15.31, tsp: 5.1 },
+  { ingredientKeywords: ["greek yogurt", "yogurt"], cup: 245, tbsp: 15.31, tsp: 5.1 },
+  { ingredientKeywords: ["cottage cheese"], cup: 226, tbsp: 14.13, tsp: 4.71 },
+  { ingredientKeywords: ["rice", "cooked rice"], cup: 158, tbsp: 9.88, tsp: 3.29 },
+  { ingredientKeywords: ["oats", "rolled oats"], cup: 80, tbsp: 5, tsp: 1.67 },
+  { ingredientKeywords: ["quinoa", "cooked quinoa"], cup: 185, tbsp: 11.56, tsp: 3.85 },
+  { ingredientKeywords: ["pasta", "cooked pasta"], cup: 140, tbsp: 8.75, tsp: 2.92 },
+  { ingredientKeywords: ["berries", "blueberries", "strawberries"], cup: 148, tbsp: 9.25, tsp: 3.08 },
+  { ingredientKeywords: ["broth", "stock"], cup: 240, tbsp: 15, tsp: 5 },
+  { ingredientKeywords: ["olive oil", "oil"], cup: 216, tbsp: 13.5, tsp: 4.5 },
+  { ingredientKeywords: ["butter"], cup: 227, tbsp: 14.19, tsp: 4.73 },
+  { ingredientKeywords: ["honey"], cup: 340, tbsp: 21.25, tsp: 7.08 },
+  { ingredientKeywords: ["maple syrup"], cup: 315, tbsp: 19.69, tsp: 6.56 },
+  { ingredientKeywords: ["peanut butter", "almond butter"], cup: 258, tbsp: 16.13, tsp: 5.38 },
+  { ingredientKeywords: ["protein powder"], cup: 120, tbsp: 7.5, tsp: 2.5 },
+  { ingredientKeywords: ["flour"], cup: 120, tbsp: 7.5, tsp: 2.5 },
+  { ingredientKeywords: ["sugar"], cup: 200, tbsp: 12.5, tsp: 4.17 },
+];
+
+type PieceConversion = {
+  ingredientKeywords: string[];
+  unitAliases: string[];
+  gramsPerUnit: number;
+};
+
+const PIECE_CONVERSIONS: PieceConversion[] = [
+  { ingredientKeywords: ["chicken breast"], unitAliases: ["breast", "breasts"], gramsPerUnit: 174 },
+  { ingredientKeywords: ["chicken thigh"], unitAliases: ["thigh", "thighs"], gramsPerUnit: 112 },
+  { ingredientKeywords: ["salmon fillet", "salmon"], unitAliases: ["fillet", "fillets"], gramsPerUnit: 154 },
+  { ingredientKeywords: ["tilapia fillet", "tilapia"], unitAliases: ["fillet", "fillets"], gramsPerUnit: 87 },
+  { ingredientKeywords: ["pork chop", "pork loin chop"], unitAliases: ["chop", "chops"], gramsPerUnit: 170 },
+  { ingredientKeywords: ["steak", "sirloin steak", "ribeye"], unitAliases: ["steak", "steaks"], gramsPerUnit: 227 },
+  { ingredientKeywords: ["turkey burger", "burger patty", "beef patty"], unitAliases: ["patty", "patties"], gramsPerUnit: 113 },
+  { ingredientKeywords: ["egg white"], unitAliases: ["egg white", "egg whites"], gramsPerUnit: 33 },
+  { ingredientKeywords: ["egg"], unitAliases: ["egg", "eggs"], gramsPerUnit: 50 },
+  { ingredientKeywords: ["banana"], unitAliases: ["banana", "bananas"], gramsPerUnit: 118 },
+  { ingredientKeywords: ["avocado"], unitAliases: ["avocado", "avocados"], gramsPerUnit: 150 },
+  { ingredientKeywords: ["apple"], unitAliases: ["apple", "apples"], gramsPerUnit: 182 },
+  { ingredientKeywords: ["orange"], unitAliases: ["orange", "oranges"], gramsPerUnit: 131 },
+  { ingredientKeywords: ["potato", "russet potato", "sweet potato"], unitAliases: ["potato", "potatoes"], gramsPerUnit: 173 },
+  { ingredientKeywords: ["onion"], unitAliases: ["onion", "onions"], gramsPerUnit: 110 },
+  { ingredientKeywords: ["bell pepper", "pepper"], unitAliases: ["pepper", "peppers"], gramsPerUnit: 119 },
+  { ingredientKeywords: ["garlic clove", "garlic"], unitAliases: ["clove", "cloves"], gramsPerUnit: 5 },
+  { ingredientKeywords: ["bread"], unitAliases: ["slice", "slices"], gramsPerUnit: 30 },
+  { ingredientKeywords: ["tortilla"], unitAliases: ["tortilla", "tortillas"], gramsPerUnit: 49 },
+  { ingredientKeywords: ["bagel"], unitAliases: ["bagel", "bagels"], gramsPerUnit: 95 },
+  { ingredientKeywords: ["muffin"], unitAliases: ["muffin", "muffins"], gramsPerUnit: 57 },
+];
+
+function parseFractionalAmount(value: string) {
+  const raw = value.trim();
+  if (!raw) return null;
+
+  if (/^\d+\s+\d+\/\d+$/.test(raw)) {
+    const [whole, fraction] = raw.split(/\s+/);
+    const [num, den] = fraction.split("/").map(Number);
+    if (!den) return null;
+    return Number(whole) + num / den;
+  }
+
+  if (/^\d+\/\d+$/.test(raw)) {
+    const [num, den] = raw.split("/").map(Number);
+    if (!den) return null;
+    return num / den;
+  }
+
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function findVolumeConversion(ingredientName: string) {
+  const normalized = normalizeIngredientName(ingredientName);
+  return VOLUME_CONVERSIONS.find((conversion) =>
+    conversion.ingredientKeywords.some((keyword) => normalized.includes(keyword))
+  );
+}
+
+function findPieceConversion(ingredientName: string, unit: string) {
+  const normalizedName = normalizeIngredientName(ingredientName);
+  const normalizedUnit = unit.trim().toLowerCase();
+
+  return PIECE_CONVERSIONS.find(
+    (conversion) =>
+      conversion.unitAliases.includes(normalizedUnit) &&
+      conversion.ingredientKeywords.some((keyword) => normalizedName.includes(keyword))
+  );
+}
+
+function matchesPieceLabel(unit: string, pieceLabel?: string | null) {
+  if (!pieceLabel?.trim()) return false;
+  const normalizedUnit = unit.trim().toLowerCase();
+  const normalizedLabel = pieceLabel.trim().toLowerCase();
+
+  if (normalizedUnit === normalizedLabel) return true;
+  if (`${normalizedLabel}s` === normalizedUnit) return true;
+  return false;
+}
+
+function parseQuantityToGrams(
+  qty?: string,
+  ingredientName = "",
+  conversionProfile?: IngredientConversionProfile | null
+) {
   const raw = qty?.trim().toLowerCase();
   if (!raw) return null;
 
-  const match = raw.match(/^([0-9]*\.?[0-9]+)\s*(kg|g|gram|grams)?$/);
+  const match = raw.match(/^(\d+(?:\s+\d+\/\d+)?|\d+\/\d+|[0-9]*\.?[0-9]+)\s*([a-z ]+)?$/);
   if (!match) return null;
 
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const amount = parseFractionalAmount(match[1]);
+  if (amount == null || amount <= 0) return null;
 
-  const unit = match[2] ?? "g";
-  if (unit === "kg") return amount * 1000;
-  return amount;
+  const unit = (match[2] ?? "g").trim();
+
+  if (unit in WEIGHT_UNIT_TO_GRAMS) {
+    return roundMacroValue(amount * WEIGHT_UNIT_TO_GRAMS[unit]);
+  }
+
+  if (["cup", "cups", "tbsp", "tablespoon", "tablespoons", "tsp", "teaspoon", "teaspoons"].includes(unit)) {
+    if (
+      conversionProfile &&
+      ((unit === "cup" || unit === "cups") && conversionProfile.cup_g != null ||
+        (unit === "tbsp" || unit === "tablespoon" || unit === "tablespoons") && conversionProfile.tbsp_g != null ||
+        (unit === "tsp" || unit === "teaspoon" || unit === "teaspoons") && conversionProfile.tsp_g != null)
+    ) {
+      if (unit === "cup" || unit === "cups") {
+        return roundMacroValue(amount * Number(conversionProfile.cup_g));
+      }
+      if (unit === "tbsp" || unit === "tablespoon" || unit === "tablespoons") {
+        return roundMacroValue(amount * Number(conversionProfile.tbsp_g));
+      }
+      return roundMacroValue(amount * Number(conversionProfile.tsp_g));
+    }
+
+    const conversion = findVolumeConversion(ingredientName);
+    if (!conversion) return null;
+
+    if (unit === "cup" || unit === "cups") return roundMacroValue(amount * conversion.cup);
+    if (unit === "tbsp" || unit === "tablespoon" || unit === "tablespoons") {
+      return roundMacroValue(amount * conversion.tbsp);
+    }
+    return roundMacroValue(amount * conversion.tsp);
+  }
+
+  if (conversionProfile?.piece_g != null && matchesPieceLabel(unit, conversionProfile.piece_label)) {
+    return roundMacroValue(amount * Number(conversionProfile.piece_g));
+  }
+
+  const pieceConversion = findPieceConversion(ingredientName, unit);
+  if (pieceConversion) {
+    return roundMacroValue(amount * pieceConversion.gramsPerUnit);
+  }
+
+  return null;
 }
 
 function formatIngredientLibraryOption(ingredient: IngredientLibraryItem) {
@@ -129,7 +303,7 @@ function roundMacroValue(value: number) {
 
 function formatMacroLine(recipe: Recipe, servings: number) {
   const scaled = macrosForRecipe(recipe, servings);
-  return `${scaled.calories} kcal • P ${scaled.protein} • C ${scaled.carbs} • F ${scaled.fat}`;
+  return `${scaled.calories} kcal Ã¢â‚¬Â¢ P ${scaled.protein} Ã¢â‚¬Â¢ C ${scaled.carbs} Ã¢â‚¬Â¢ F ${scaled.fat}`;
 }
 
 function macrosForRecipe(recipe: Recipe, servings: number) {
@@ -150,7 +324,7 @@ function scaleQty(qty: string | undefined, factor: number) {
   if (!raw) return "";
 
   const match = raw.match(
-    /^\s*([0-9]*\.?[0-9]+)\s*([\-–]\s*([0-9]*\.?[0-9]+))?\s*(.*)$/
+    /^\s*([0-9]*\.?[0-9]+)\s*([\-Ã¢â‚¬â€œ]\s*([0-9]*\.?[0-9]+))?\s*(.*)$/
   );
 
   if (!match) return factor === 1 ? raw : `${raw} x${factor}`;
@@ -168,11 +342,39 @@ function scaleQty(qty: string | undefined, factor: number) {
   const scaled2 = n2 !== null ? n2 * factor : null;
 
   if (scaled2 !== null) {
-    const dash = raw.includes("–") ? "–" : "-";
+    const dash = raw.includes("Ã¢â‚¬â€œ") ? "Ã¢â‚¬â€œ" : "-";
     return `${fmt(scaled1)}${dash}${fmt(scaled2)}${rest ? " " + rest : ""}`.trim();
   }
 
   return `${fmt(scaled1)}${rest ? " " + rest : ""}`.trim();
+}
+
+function ingredientFromLibrary(ingredient: IngredientLibraryItem): Ingredient {
+  return {
+    name: ingredient.name,
+    qty: "100g",
+    category: "other",
+    ingredientId: ingredient.id,
+    quantityGrams: 100,
+    isLinked: true,
+    isPrivate: ingredient.visibility === "private",
+  };
+}
+
+function formatParsedQuantityHint(
+  ingredient: Ingredient,
+  conversionProfile?: IngredientConversionProfile | null
+) {
+  const grams = parseQuantityToGrams(ingredient.qty, ingredient.name, conversionProfile);
+  if (grams == null) return null;
+  return `Parsed as ~${grams}g for macro calculations.`;
+}
+
+function optionalPositiveNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : NaN;
 }
 
 function TabButton({
@@ -188,9 +390,9 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+      className={`flex-1 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
         active
-          ? "bg-blue-600 text-white"
+          ? "bg-blue-600 text-white shadow-[0_10px_30px_rgba(37,99,235,0.28)]"
           : "bg-gray-800 text-gray-300 hover:bg-gray-700"
       }`}
     >
@@ -222,12 +424,12 @@ function MealActionButton({
 
 function formatMacroPreview(recipe: Recipe, servings: number) {
   const macros = macrosForRecipe(recipe, servings);
-  return `+${macros.calories} kcal • +${macros.protein}P • +${macros.carbs}C • +${macros.fat}F`;
+  return `+${macros.calories} kcal Ã¢â‚¬Â¢ +${macros.protein}P Ã¢â‚¬Â¢ +${macros.carbs}C Ã¢â‚¬Â¢ +${macros.fat}F`;
 }
 
 
 export default function MealsPage() {
-  const [tab, setTab] = useState<PlannerTab>("planner");
+  const [tab, setTab] = useState<PlannerTab>("create");
 
   const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
   const [search, setSearch] = useState("");
@@ -283,6 +485,11 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [customIngredientProtein, setCustomIngredientProtein] = useState("");
   const [customIngredientCarbs, setCustomIngredientCarbs] = useState("");
   const [customIngredientFat, setCustomIngredientFat] = useState("");
+  const [customIngredientCupGrams, setCustomIngredientCupGrams] = useState("");
+  const [customIngredientTablespoonGrams, setCustomIngredientTablespoonGrams] = useState("");
+  const [customIngredientTeaspoonGrams, setCustomIngredientTeaspoonGrams] = useState("");
+  const [customIngredientPieceGrams, setCustomIngredientPieceGrams] = useState("");
+  const [customIngredientPieceLabel, setCustomIngredientPieceLabel] = useState("");
   const [customIngredientError, setCustomIngredientError] = useState<string | null>(null);
   const [customIngredientSaving, setCustomIngredientSaving] = useState(false);
   const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null);
@@ -292,6 +499,11 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [editingIngredientProtein, setEditingIngredientProtein] = useState("");
   const [editingIngredientCarbs, setEditingIngredientCarbs] = useState("");
   const [editingIngredientFat, setEditingIngredientFat] = useState("");
+  const [editingIngredientCupGrams, setEditingIngredientCupGrams] = useState("");
+  const [editingIngredientTablespoonGrams, setEditingIngredientTablespoonGrams] = useState("");
+  const [editingIngredientTeaspoonGrams, setEditingIngredientTeaspoonGrams] = useState("");
+  const [editingIngredientPieceGrams, setEditingIngredientPieceGrams] = useState("");
+  const [editingIngredientPieceLabel, setEditingIngredientPieceLabel] = useState("");
   const [ingredientManagerError, setIngredientManagerError] = useState<string | null>(null);
   const [ingredientManagerMsg, setIngredientManagerMsg] = useState<string | null>(null);
   const [ingredientManagerSaving, setIngredientManagerSaving] = useState(false);
@@ -443,6 +655,7 @@ useEffect(() => {
 
     return items.sort((a, b) => a.name.localeCompare(b.name));
   }, [filteredPrivateIngredients, ingredientManagerSort]);
+
   const filteredPublicIngredients = useMemo(() => {
     const query = publicIngredientSearch.trim().toLowerCase();
     const items = [...publicIngredients].sort((a, b) => a.name.localeCompare(b.name));
@@ -460,13 +673,14 @@ useEffect(() => {
         const name = ingredient.name.trim();
         if (!name) return null;
 
-        const quantityGrams =
-          ingredient.quantityGrams ?? parseQuantityToGrams(ingredient.qty);
-
         const matchedIngredient =
           (ingredient.ingredientId
             ? ingredientLibrary.find((item) => item.id === ingredient.ingredientId)
             : undefined) ?? ingredientLibraryByName.get(normalizeIngredientName(name));
+
+        const quantityGrams =
+          ingredient.quantityGrams ??
+          parseQuantityToGrams(ingredient.qty, ingredient.name, matchedIngredient);
 
         return {
           id: `builder-${index}`,
@@ -625,7 +839,7 @@ async function undoLastLog() {
   }
 
   setPlannerErr(null);
-  setPlannerMsg(`Undid log for ${undo.label} ↩`);
+  setPlannerMsg(`Undid log for ${undo.label} Ã¢â€ Â©`);
   setLastLogUndo(null);
 
   window.setTimeout(() => setPlannerMsg(null), 1800);
@@ -722,13 +936,13 @@ setPlannerErr(null);
 setPlannerMsg(
   `Added ${ingredients.length} ingredient lines to ${
     groceryMode === "household" ? "household" : "personal"
-  } grocery ✅`
+  } grocery Ã¢Å“â€¦`
 );
 
     window.setTimeout(() => setPlannerMsg(null), 1800);
   } catch {
     setPlannerMsg(null);
-    setPlannerErr("Couldn’t generate grocery list.");
+    setPlannerErr("CouldnÃ¢â‚¬â„¢t generate grocery list.");
   }
 }
 
@@ -1040,13 +1254,13 @@ setPlannerErr(null);
 setPlannerMsg(
   `Added groceries from all planned days to ${
     groceryMode === "household" ? "household" : "personal"
-  } grocery ✅`
+  } grocery Ã¢Å“â€¦`
 );
 
     window.setTimeout(() => setPlannerMsg(null), 1800);
   } catch {
     setPlannerMsg(null);
-    setPlannerErr("Couldn’t generate grocery list.");
+    setPlannerErr("CouldnÃ¢â‚¬â„¢t generate grocery list.");
   }
 }
 
@@ -1083,6 +1297,23 @@ setPlannerMsg(
     setViewerServings(1);
   }
 
+  function addIngredientToRecipeBuilder(ingredient: IngredientLibraryItem) {
+    setTab("create");
+    setIngredients((prev) => {
+      const emptyIndex = prev.findIndex((item) => !item.name.trim());
+      const nextIngredient = ingredientFromLibrary(ingredient);
+
+      if (emptyIndex >= 0) {
+        return prev.map((item, index) => (index === emptyIndex ? nextIngredient : item));
+      }
+
+      return [...prev, nextIngredient];
+    });
+
+    setRecipeCreateMsg(`Added "${ingredient.name}" to the recipe builder.`);
+    setRecipeCreateError(null);
+  }
+
   function updateIngredient(i: number, patch: Partial<Ingredient>) {
     setIngredients((prev) =>
       prev.map((ing, idx) => {
@@ -1105,7 +1336,11 @@ setPlannerMsg(
         }
 
         if (patch.qty !== undefined) {
-          const grams = parseQuantityToGrams(next.qty);
+          const matchedForQty =
+            next.ingredientId != null
+              ? ingredientLibrary.find((item) => item.id === next.ingredientId) ?? matchedIngredient
+              : matchedIngredient;
+          const grams = parseQuantityToGrams(next.qty, next.name, matchedForQty);
           next.quantityGrams = grams ?? undefined;
         }
 
@@ -1128,6 +1363,11 @@ setPlannerMsg(
     setCustomIngredientProtein("");
     setCustomIngredientCarbs("");
     setCustomIngredientFat("");
+    setCustomIngredientCupGrams("");
+    setCustomIngredientTablespoonGrams("");
+    setCustomIngredientTeaspoonGrams("");
+    setCustomIngredientPieceGrams("");
+    setCustomIngredientPieceLabel("");
   }
 
   function closeCustomIngredientForm() {
@@ -1146,6 +1386,11 @@ setPlannerMsg(
     setEditingIngredientProtein(formatMacroNumberInput(Number(ingredient.reference_protein_g)));
     setEditingIngredientCarbs(formatMacroNumberInput(Number(ingredient.reference_carbs_g)));
     setEditingIngredientFat(formatMacroNumberInput(Number(ingredient.reference_fat_g)));
+    setEditingIngredientCupGrams(ingredient.cup_g != null ? formatMacroNumberInput(Number(ingredient.cup_g)) : "");
+    setEditingIngredientTablespoonGrams(ingredient.tbsp_g != null ? formatMacroNumberInput(Number(ingredient.tbsp_g)) : "");
+    setEditingIngredientTeaspoonGrams(ingredient.tsp_g != null ? formatMacroNumberInput(Number(ingredient.tsp_g)) : "");
+    setEditingIngredientPieceGrams(ingredient.piece_g != null ? formatMacroNumberInput(Number(ingredient.piece_g)) : "");
+    setEditingIngredientPieceLabel(ingredient.piece_label ?? "");
   }
 
   function stopEditingIngredient() {
@@ -1166,6 +1411,11 @@ setPlannerMsg(
     const protein = Number(editingIngredientProtein);
     const carbs = Number(editingIngredientCarbs);
     const fat = Number(editingIngredientFat);
+    const cupGrams = optionalPositiveNumber(editingIngredientCupGrams);
+    const tablespoonGrams = optionalPositiveNumber(editingIngredientTablespoonGrams);
+    const teaspoonGrams = optionalPositiveNumber(editingIngredientTeaspoonGrams);
+    const pieceGrams = optionalPositiveNumber(editingIngredientPieceGrams);
+    const pieceLabel = editingIngredientPieceLabel.trim();
 
     if (!trimmedName) {
       setIngredientManagerError("Ingredient name is required.");
@@ -1182,6 +1432,16 @@ setPlannerMsg(
       return;
     }
 
+    if ([cupGrams, tablespoonGrams, teaspoonGrams, pieceGrams].some((value) => Number.isNaN(value))) {
+      setIngredientManagerError("Conversion values must be blank or greater than 0.");
+      return;
+    }
+
+    if ((pieceGrams != null && !pieceLabel) || (pieceLabel && pieceGrams == null)) {
+      setIngredientManagerError("Piece conversions need both a label and a gram value.");
+      return;
+    }
+
     setIngredientManagerSaving(true);
     setIngredientManagerError(null);
 
@@ -1193,6 +1453,11 @@ setPlannerMsg(
         reference_protein_g: protein,
         reference_carbs_g: carbs,
         reference_fat_g: fat,
+        cup_g: cupGrams,
+        tbsp_g: tablespoonGrams,
+        tsp_g: teaspoonGrams,
+        piece_g: pieceGrams,
+        piece_label: pieceLabel || null,
         visibility: "private",
         verification_status: "custom",
       });
@@ -1301,9 +1566,24 @@ setPlannerMsg(
     const protein = Number(customIngredientProtein);
     const carbs = Number(customIngredientCarbs);
     const fat = Number(customIngredientFat);
+    const cupGrams = optionalPositiveNumber(customIngredientCupGrams);
+    const tablespoonGrams = optionalPositiveNumber(customIngredientTablespoonGrams);
+    const teaspoonGrams = optionalPositiveNumber(customIngredientTeaspoonGrams);
+    const pieceGrams = optionalPositiveNumber(customIngredientPieceGrams);
+    const pieceLabel = customIngredientPieceLabel.trim();
 
     if ([calories, protein, carbs, fat].some((value) => !Number.isFinite(value) || value < 0)) {
       setCustomIngredientError("Macro values must be 0 or greater.");
+      return;
+    }
+
+    if ([cupGrams, tablespoonGrams, teaspoonGrams, pieceGrams].some((value) => Number.isNaN(value))) {
+      setCustomIngredientError("Conversion values must be blank or greater than 0.");
+      return;
+    }
+
+    if ((pieceGrams != null && !pieceLabel) || (pieceLabel && pieceGrams == null)) {
+      setCustomIngredientError("Piece conversions need both a label and a gram value.");
       return;
     }
 
@@ -1318,6 +1598,11 @@ setPlannerMsg(
         reference_protein_g: protein,
         reference_carbs_g: carbs,
         reference_fat_g: fat,
+        cup_g: cupGrams,
+        tbsp_g: tablespoonGrams,
+        tsp_g: teaspoonGrams,
+        piece_g: pieceGrams,
+        piece_label: pieceLabel || null,
         visibility: "private",
         verification_status: "custom",
         source_note: "Created in recipe builder",
@@ -1516,11 +1801,11 @@ async function onDeleteRecipe(id: string) {
       const code = exportRecipeShareCode(recipe);
       await navigator.clipboard.writeText(code);
       setRecipeShareErr(null);
-      setRecipeShareMsg("Recipe code copied ✅");
+      setRecipeShareMsg("Recipe code copied Ã¢Å“â€¦");
       window.setTimeout(() => setRecipeShareMsg(null), 1600);
     } catch {
       setRecipeShareMsg(null);
-      setRecipeShareErr("Couldn’t copy recipe code.");
+      setRecipeShareErr("CouldnÃ¢â‚¬â„¢t copy recipe code.");
     }
   }
 
@@ -1531,7 +1816,7 @@ async function onImportRecipe() {
     setMyRecipes(nextRecipes);
     setRecipeShareCode("");
     setRecipeShareErr(null);
-    setRecipeShareMsg("Recipe imported ✅");
+    setRecipeShareMsg("Recipe imported Ã¢Å“â€¦");
     window.setTimeout(() => setRecipeShareMsg(null), 1600);
   } catch {
     setRecipeShareMsg(null);
@@ -1541,7 +1826,7 @@ async function onImportRecipe() {
 
 if (redirecting || !authChecked) {
   return (
-    <AppShell title="Meals">
+    <AppShell title="Create" subtitle="Build a new recipe" backHref="/recipes" backLabel="Create">
       <div className="text-sm text-gray-400">Loading...</div>
     </AppShell>
   );
@@ -1558,8 +1843,35 @@ const activeSlotLabel = (() => {
 })();
 
   return (
-    <AppShell title="Meals">
-      <div className="space-y-4">
+    <AppShell title="Create" subtitle="Build a new recipe" backHref="/recipes" backLabel="Create">
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 gap-2">
+          <TabButton active={tab === "create"} onClick={() => setTab("create")}>
+            Create
+          </TabButton>
+          <TabButton active={tab === "recipes"} onClick={() => setTab("recipes")}>
+            Libraries
+          </TabButton>
+        </div>
+
+        <div className="rounded-3xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Recipe Builder</h2>
+              <p className="mt-1 text-sm text-gray-400">
+                Create a recipe, import a code, and save ingredients as you go.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push("/recipes")}
+              className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
+            >
+              Back to Book
+            </button>
+          </div>
+        </div>
+
         {viewerRecipe && (
           <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
@@ -1587,7 +1899,7 @@ const activeSlotLabel = (() => {
                 <div className="text-sm font-semibold text-gray-200">Servings</div>
                 <div className="flex items-center gap-2">
                   <MealActionButton onClick={() => setViewerServings((s) => Math.max(1, s - 1))}>
-                    –
+                    Ã¢â‚¬â€œ
                   </MealActionButton>
                   <div className="min-w-[48px] text-center text-sm font-semibold text-white">
                     {viewerServings}
@@ -1632,7 +1944,7 @@ const activeSlotLabel = (() => {
           </div>
         )}
 
-        {tab === "planner" && (
+        {false && tab === "planner" && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-2">
   <TabButton active={selectedDay === "today"} onClick={() => setSelectedDay("today")}>
@@ -1651,9 +1963,9 @@ const activeSlotLabel = (() => {
             <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
               <h2 className="text-lg font-semibold text-white">
   {selectedDay === "today"
-    ? "Today’s Meals"
+    ? "TodayÃ¢â‚¬â„¢s Meals"
     : selectedDay === "tomorrow"
-    ? "Tomorrow’s Meals"
+    ? "TomorrowÃ¢â‚¬â„¢s Meals"
     : "Day 3 Meals"}
 </h2>
               <p className="mt-1 text-sm text-gray-400">
@@ -1793,7 +2105,7 @@ const activeSlotLabel = (() => {
       onClick={() => updateMealSlotServings(slotKey, -1)}
       disabled={slot.servings <= 1}
     >
-      –
+      Ã¢â‚¬â€œ
     </MealActionButton>
     <div className="min-w-[48px] text-center text-sm font-semibold text-white">
       {slot.servings}x
@@ -1880,7 +2192,7 @@ const activeSlotLabel = (() => {
       onClick={() => updateSnackServings(snack.id, -1)}
       disabled={snack.servings <= 1}
     >
-      –
+      Ã¢â‚¬â€œ
     </MealActionButton>
     <div className="min-w-[48px] text-center text-sm font-semibold text-white">
       {snack.servings}x
@@ -1926,137 +2238,109 @@ const activeSlotLabel = (() => {
 
         {tab === "recipes" && (
           <div className="space-y-4">
-            {activeSlot && (
-              <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-100">
-                Selecting a recipe for <span className="font-semibold">{activeSlotLabel}</span>.
-              </div>
-            )}
-
             <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
-              <h2 className="text-lg font-semibold text-white">Recipe Share</h2>
+              <h2 className="text-lg font-semibold text-white">Ingredient Libraries</h2>
               <p className="mt-1 text-sm text-gray-400">
-                Paste a recipe code to import it into your recipe book.
+                Browse verified ingredients and reference your private library while building.
               </p>
-
-              {recipeShareMsg && (
-                <div className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-                  {recipeShareMsg}
-                </div>
-              )}
-
-              {recipeShareErr && (
-                <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-                  {recipeShareErr}
-                </div>
-              )}
-
-              <textarea
-                value={recipeShareCode}
-                onChange={(e) => setRecipeShareCode(e.target.value)}
-                placeholder="Paste recipe code here..."
-                rows={3}
-                className="mt-3 w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-              />
-
-              <button
-                type="button"
-                onClick={onImportRecipe}
-                disabled={!recipeShareCode.trim()}
-                className="mt-3 w-full rounded-xl bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Import Recipe
-              </button>
             </div>
 
-            <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+            <div className="rounded-3xl border border-gray-700 bg-gray-900/60 p-4">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-white">Recipe Book</h2>
-                <button
-                  type="button"
-                  onClick={() => setTab("create")}
-                  className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  + Create
-                </button>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-200">Verified Ingredient Library</h3>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Search your verified ingredient database and send items back into the builder.
+                  </p>
+                </div>
+                <div className="text-xs text-gray-500">{publicIngredients.length} verified</div>
               </div>
 
               <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search recipes..."
+                value={publicIngredientSearch}
+                onChange={(e) => setPublicIngredientSearch(e.target.value)}
+                placeholder="Search verified ingredients..."
                 className="mt-3 w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
               />
-            </div>
 
-            <div className="space-y-3">
-              {filteredRecipes.map((recipe) => {
-                const isCustom = !recipe.isTemplate;
-                const perServing = macrosForRecipe(recipe, 1);
-
-                return (
-                  <div
-                    key={recipe.id}
-                    className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="text-sm font-semibold text-white">{recipe.name}</div>
-                        <div className="mt-1 text-xs text-gray-400">
-                          {recipe.isTemplate ? "Template" : "My recipe"} •{" "}
-                          {recipe.ingredients.length} ingredients
-                          {recipe.steps?.length ? ` • ${recipe.steps.length} steps` : ""}
-                        </div>
-                        <div className="mt-2 text-xs text-gray-300">
-                          Per serving: {perServing.calories} kcal • P {perServing.protein} • C{" "}
-                          {perServing.carbs} • F {perServing.fat}
-                        </div>
-                        <div className="mt-1 text-xs text-gray-500">
-                          Default servings: {recipe.defaultServings}
-                        </div>
+              {publicIngredients.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
+                  No verified public ingredients are available yet.
+                </div>
+              ) : filteredPublicIngredients.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
+                  No verified ingredients match &quot;{publicIngredientSearch.trim()}&quot;.
+                </div>
+              ) : (
+                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+                  {filteredPublicIngredients.map((ingredient) => (
+                    <div
+                      key={ingredient.id}
+                      className="rounded-xl border border-gray-700 bg-gray-950/60 p-3"
+                    >
+                      <div className="text-sm font-semibold text-white">{ingredient.name}</div>
+                      <div className="mt-1 text-xs text-gray-400">
+                        Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
+                        {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
+                        {ingredient.reference_fat_g}
+                      </div>
+                      <div className="mt-3">
+                        <MealActionButton onClick={() => addIngredientToRecipeBuilder(ingredient)}>
+                          Use In Recipe
+                        </MealActionButton>
                       </div>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <MealActionButton
-                        onClick={() => assignRecipeToActiveSlot(recipe)}
-                        disabled={!activeSlot}
-                      >
-                        {activeSlot ? `Use in ${activeSlotLabel}` : "Choose Slot First"}
-                      </MealActionButton>
+            <div className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-200">My Private Ingredients</h3>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Your full edit and delete tools are also available in the Create tab below the builder.
+                  </p>
+                </div>
+                <div className="text-xs text-gray-500">{privateIngredients.length} saved</div>
+              </div>
 
-                      <MealActionButton onClick={() => openViewer(recipe, recipe.defaultServings)}>
-                        View Steps
-                      </MealActionButton>
+              <input
+                value={ingredientManagerSearch}
+                onChange={(e) => setIngredientManagerSearch(e.target.value)}
+                placeholder="Search private ingredients..."
+                className="mt-3 w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+              />
 
-                      {isCustom ? (
-                        <MealActionButton onClick={() => onShareRecipe(recipe)}>
-                          Share Recipe
-                        </MealActionButton>
-                      ) : (
-                        <MealActionButton disabled>Template</MealActionButton>
-                      )}
-
-                      {isCustom ? (
-                        <MealActionButton onClick={() => onDeleteRecipe(recipe.id)}>
-                          Delete
-                        </MealActionButton>
-                      ) : (
-                        <MealActionButton disabled>Locked</MealActionButton>
-                      )}
+              {privateIngredients.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
+                  No private ingredients yet. Create one from an unknown recipe ingredient to start your personal library.
+                </div>
+              ) : filteredAndSortedPrivateIngredients.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
+                  No private ingredients match &quot;{ingredientManagerSearch.trim()}&quot;.
+                </div>
+              ) : (
+                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+                  {filteredAndSortedPrivateIngredients.map((ingredient) => (
+                    <div
+                      key={ingredient.id}
+                      className="rounded-xl border border-gray-700 bg-gray-950/60 p-3"
+                    >
+                      <div className="text-sm font-semibold text-white">{ingredient.name}</div>
+                      <div className="mt-1 text-xs text-gray-400">
+                        Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
+                        {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
+                        {ingredient.reference_fat_g}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-
-              {filteredRecipes.length === 0 && (
-                <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 text-sm text-gray-400 shadow-sm">
-                  No recipes found.
+                  ))}
                 </div>
               )}
             </div>
           </div>
         )}
-
         {tab === "create" && (
           <form
             onSubmit={onCreateRecipe}
@@ -2076,13 +2360,49 @@ const activeSlotLabel = (() => {
               </div>
             )}
 
+            <div className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
+              <h3 className="text-sm font-semibold text-white">Import Recipe Code</h3>
+              <p className="mt-1 text-sm text-gray-400">
+                Paste a compact recipe code here to pull it into your recipe book, then keep building.
+              </p>
+
+              {recipeShareMsg && (
+                <div className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                  {recipeShareMsg}
+                </div>
+              )}
+
+              {recipeShareErr && (
+                <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                  {recipeShareErr}
+                </div>
+              )}
+
+              <textarea
+                value={recipeShareCode}
+                onChange={(e) => setRecipeShareCode(e.target.value)}
+                placeholder="Paste recipe code here..."
+                rows={3}
+                className="mt-3 w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white placeholder:text-gray-500"
+              />
+
+              <button
+                type="button"
+                onClick={onImportRecipe}
+                disabled={!recipeShareCode.trim()}
+                className="mt-3 w-full rounded-2xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Import Recipe
+              </button>
+            </div>
+
             <div>
               <label className="mb-1 block text-sm text-gray-300">Recipe name</label>
               <input
                 value={recipeName}
                 onChange={(e) => setRecipeName(e.target.value)}
                 placeholder="e.g. Turkey Chili"
-                className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                className="w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white placeholder:text-gray-500"
               />
             </div>
 
@@ -2094,11 +2414,11 @@ const activeSlotLabel = (() => {
                   min={1}
                   value={defaultServings}
                   onChange={(e) => setDefaultServings(Number(e.target.value))}
-                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                  className="w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white"
                 />
               </div>
 
-              <div className="col-span-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4">
+              <div className="col-span-2 rounded-3xl border border-blue-500/30 bg-blue-500/10 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-blue-100">Live Macro Preview</div>
@@ -2113,7 +2433,7 @@ const activeSlotLabel = (() => {
                 </div>
 
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <div className="rounded-xl bg-gray-950/40 p-3">
+                  <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
                     <div className="text-xs uppercase tracking-wide text-blue-100/70">Calories</div>
                     <div className="mt-1 text-lg font-semibold text-white">
                       {recipeBuilderAnalysis.linkedTotals.calories}
@@ -2123,7 +2443,7 @@ const activeSlotLabel = (() => {
                     </div>
                   </div>
 
-                  <div className="rounded-xl bg-gray-950/40 p-3">
+                  <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
                     <div className="text-xs uppercase tracking-wide text-blue-100/70">Protein</div>
                     <div className="mt-1 text-lg font-semibold text-white">
                       {recipeBuilderAnalysis.linkedTotals.protein}g
@@ -2133,7 +2453,7 @@ const activeSlotLabel = (() => {
                     </div>
                   </div>
 
-                  <div className="rounded-xl bg-gray-950/40 p-3">
+                  <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
                     <div className="text-xs uppercase tracking-wide text-blue-100/70">Carbs</div>
                     <div className="mt-1 text-lg font-semibold text-white">
                       {recipeBuilderAnalysis.linkedTotals.carbs}g
@@ -2143,7 +2463,7 @@ const activeSlotLabel = (() => {
                     </div>
                   </div>
 
-                  <div className="rounded-xl bg-gray-950/40 p-3">
+                  <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
                     <div className="text-xs uppercase tracking-wide text-blue-100/70">Fat</div>
                     <div className="mt-1 text-lg font-semibold text-white">
                       {recipeBuilderAnalysis.linkedTotals.fat}g
@@ -2221,6 +2541,14 @@ const activeSlotLabel = (() => {
 
             <div>
               <h3 className="mb-2 text-sm font-semibold text-gray-300">Ingredients</h3>
+              <div className="mb-3 rounded-xl border border-gray-700 bg-gray-950/50 p-3 text-xs text-gray-400">
+                Quantity helpers: `g`, `kg`, `oz`, and `lb` always work. `cup`, `tbsp`, and `tsp`
+                now cover more common items like yogurt, cottage cheese, rice, oats, quinoa,
+                pasta, berries, broth, oil, butter, honey, maple syrup, nut butters, protein
+                powder, flour, and sugar. Piece helpers also cover common foods like chicken
+                cuts, eggs, bananas, avocados, apples, oranges, potatoes, onions, peppers,
+                garlic cloves, bread slices, tortillas, bagels, and muffins when the ingredient matches.
+              </div>
               <div className="space-y-3">
                 {ingredients.map((ing, idx) => (
                   <div
@@ -2257,8 +2585,23 @@ const activeSlotLabel = (() => {
                           className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
                         />
                         <div className="mt-1 text-xs text-gray-500">
-                          Linked ingredients need grams or kilograms for macro calculations.
+                          Supports `g`, `kg`, `oz`, `lb`, and some helpers like `1 cup`, `1 tbsp`, `1 egg`, or `1 breast`.
                         </div>
+                        {formatParsedQuantityHint(
+                          ing,
+                          ing.ingredientId
+                            ? ingredientLibrary.find((item) => item.id === ing.ingredientId) ?? null
+                            : ingredientLibraryByName.get(normalizeIngredientName(ing.name)) ?? null
+                        ) && (
+                          <div className="mt-1 text-xs text-emerald-300">
+                            {formatParsedQuantityHint(
+                              ing,
+                              ing.ingredientId
+                                ? ingredientLibrary.find((item) => item.id === ing.ingredientId) ?? null
+                                : ingredientLibraryByName.get(normalizeIngredientName(ing.name)) ?? null
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div>
@@ -2387,6 +2730,73 @@ const activeSlotLabel = (() => {
                               className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
                             />
                           </div>
+
+                          <div className="col-span-2 rounded-xl border border-gray-700 bg-gray-950/50 p-3">
+                            <div className="text-sm font-semibold text-gray-200">Optional conversions</div>
+                            <div className="mt-1 text-xs text-gray-400">
+                              Store ingredient-specific conversion helpers for cups, spoons, or a named piece like `egg` or `slice`.
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="mb-1 block text-sm text-gray-200">Cup (g)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={customIngredientCupGrams}
+                                  onChange={(e) => setCustomIngredientCupGrams(e.target.value)}
+                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="mb-1 block text-sm text-gray-200">Tbsp (g)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={customIngredientTablespoonGrams}
+                                  onChange={(e) => setCustomIngredientTablespoonGrams(e.target.value)}
+                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="mb-1 block text-sm text-gray-200">Tsp (g)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={customIngredientTeaspoonGrams}
+                                  onChange={(e) => setCustomIngredientTeaspoonGrams(e.target.value)}
+                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="mb-1 block text-sm text-gray-200">Piece grams</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={customIngredientPieceGrams}
+                                  onChange={(e) => setCustomIngredientPieceGrams(e.target.value)}
+                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                                />
+                              </div>
+
+                              <div className="col-span-2">
+                                <label className="mb-1 block text-sm text-gray-200">Piece label</label>
+                                <input
+                                  value={customIngredientPieceLabel}
+                                  onChange={(e) => setCustomIngredientPieceLabel(e.target.value)}
+                                  placeholder="e.g. egg, slice, scoop"
+                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                                />
+                              </div>
+                            </div>
+                          </div>
                         </div>
 
                         <div className="mt-3 flex gap-2">
@@ -2439,263 +2849,6 @@ const activeSlotLabel = (() => {
               </datalist>
             </div>
 
-            <div className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-200">Verified Ingredient Library</h3>
-                  <p className="mt-1 text-xs text-gray-400">
-                    Browse your public ingredient database before adding items to a recipe.
-                  </p>
-                </div>
-                <div className="text-xs text-gray-500">
-                  {publicIngredients.length} verified
-                </div>
-              </div>
-
-              <input
-                value={publicIngredientSearch}
-                onChange={(e) => setPublicIngredientSearch(e.target.value)}
-                placeholder="Search verified ingredients..."
-                className="mt-3 w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-              />
-
-              {publicIngredients.length === 0 ? (
-                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
-                  No verified public ingredients are available yet.
-                </div>
-              ) : filteredPublicIngredients.length === 0 ? (
-                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
-                  No verified ingredients match &quot;{publicIngredientSearch.trim()}&quot;.
-                </div>
-              ) : (
-                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
-                  {filteredPublicIngredients.map((ingredient) => (
-                    <div
-                      key={ingredient.id}
-                      className="rounded-xl border border-gray-700 bg-gray-950/60 p-3"
-                    >
-                      <div className="text-sm font-semibold text-white">{ingredient.name}</div>
-                      <div className="mt-1 text-xs text-gray-400">
-                        Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
-                        {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
-                        {ingredient.reference_fat_g}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        Per 100g: {ingredient.calories_per_100g} kcal • P {ingredient.protein_per_100g} • C{" "}
-                        {ingredient.carbs_per_100g} • F {ingredient.fat_per_100g}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-200">My Private Ingredients</h3>
-                  <p className="mt-1 text-xs text-gray-400">
-                    Edit or delete ingredients you created for personal use.
-                  </p>
-                </div>
-                <div className="text-xs text-gray-500">
-                  {privateIngredients.length} saved
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
-                <input
-                  value={ingredientManagerSearch}
-                  onChange={(e) => setIngredientManagerSearch(e.target.value)}
-                  placeholder="Search private ingredients..."
-                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                />
-
-                <select
-                  value={ingredientManagerSort}
-                  onChange={(e) =>
-                    setIngredientManagerSort(e.target.value as "az" | "newest" | "updated")
-                  }
-                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                >
-                  <option value="az">Sort: A-Z</option>
-                  <option value="newest">Sort: Newest</option>
-                  <option value="updated">Sort: Recently Updated</option>
-                </select>
-              </div>
-
-              {ingredientManagerMsg && (
-                <div className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-                  {ingredientManagerMsg}
-                </div>
-              )}
-
-              {ingredientManagerError && (
-                <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-                  {ingredientManagerError}
-                </div>
-              )}
-
-              {privateIngredients.length === 0 ? (
-                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
-                  No private ingredients yet. Create one from an unknown recipe ingredient to start your personal library.
-                </div>
-              ) : filteredAndSortedPrivateIngredients.length === 0 ? (
-                <div className="mt-3 rounded-xl border border-dashed border-gray-700 p-3 text-sm text-gray-400">
-                  No private ingredients match &quot;{ingredientManagerSearch.trim()}&quot;.
-                </div>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  {filteredAndSortedPrivateIngredients.map((ingredient) => {
-                    const isEditing = editingIngredientId === ingredient.id;
-
-                    return (
-                      <div
-                        key={ingredient.id}
-                        className="rounded-xl border border-gray-700 bg-gray-950/60 p-3"
-                      >
-                        {!isEditing ? (
-                          <>
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-semibold text-white">
-                                  {ingredient.name}
-                                </div>
-                                <div className="mt-1 text-xs text-gray-400">
-                                  Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
-                                  {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
-                                  {ingredient.reference_fat_g}
-                                </div>
-                                <div className="mt-1 text-xs text-gray-500">
-                                  Per 100g: {ingredient.calories_per_100g} kcal • P {ingredient.protein_per_100g} • C{" "}
-                                  {ingredient.carbs_per_100g} • F {ingredient.fat_per_100g}
-                                </div>
-                              </div>
-
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => startEditingIngredient(ingredient)}
-                                  disabled={ingredientManagerSaving}
-                                  className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removePrivateIngredient(ingredient)}
-                                  disabled={ingredientManagerSaving}
-                                  className="rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="text-sm font-semibold text-white">
-                              Edit Private Ingredient
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="col-span-2">
-                                <label className="mb-1 block text-sm text-gray-300">Ingredient name</label>
-                                <input
-                                  value={editingIngredientName}
-                                  onChange={(e) => setEditingIngredientName(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div className="col-span-2">
-                                <label className="mb-1 block text-sm text-gray-300">Reference amount (g)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={editingIngredientReferenceAmount}
-                                  onChange={(e) => setEditingIngredientReferenceAmount(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-300">Calories</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={editingIngredientCalories}
-                                  onChange={(e) => setEditingIngredientCalories(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-300">Protein (g)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={editingIngredientProtein}
-                                  onChange={(e) => setEditingIngredientProtein(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-300">Carbs (g)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={editingIngredientCarbs}
-                                  onChange={(e) => setEditingIngredientCarbs(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-300">Fat (g)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={editingIngredientFat}
-                                  onChange={(e) => setEditingIngredientFat(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => saveEditedIngredient(ingredient.id)}
-                                disabled={ingredientManagerSaving}
-                                className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {ingredientManagerSaving ? "Saving..." : "Save Changes"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={stopEditingIngredient}
-                                disabled={ingredientManagerSaving}
-                                className="rounded-xl bg-gray-700 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
             <div>
               <h3 className="mb-2 text-sm font-semibold text-gray-300">
                 Recipe Steps (optional)
@@ -2742,7 +2895,7 @@ const activeSlotLabel = (() => {
 
             <button
               type="submit"
-              className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(37,99,235,0.28)] hover:bg-blue-700"
             >
               Save Recipe
             </button>
