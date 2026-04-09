@@ -15,6 +15,7 @@ import {
   updateWorkoutTemplate,
   type DistanceUnit,
   type ExerciseRecord,
+  type WorkoutTemplateExerciseRecord,
   type WorkoutTemplateExerciseInsert,
   type WorkoutTemplateRecord,
 } from "../../../lib/supabase/workouts-db";
