@@ -60,7 +60,7 @@ export default function BarcodeScanner({
   const streamRef = useRef<MediaStream | null>(null);
   const nativeLoopRef = useRef<number | null>(null);
   const zxingControlsRef = useRef<ZXingControls | null>(null);
-  const codeReaderRef = useRef<{ reset?: () => void } | null>(null);
+  const codeReaderRef = useRef<unknown>(null);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [scannerReady, setScannerReady] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -80,7 +80,12 @@ export default function BarcodeScanner({
       zxingControlsRef.current = null;
     }
 
-    if (codeReaderRef.current?.reset) {
+    if (
+      codeReaderRef.current &&
+      typeof codeReaderRef.current === "object" &&
+      "reset" in codeReaderRef.current &&
+      typeof codeReaderRef.current.reset === "function"
+    ) {
       codeReaderRef.current.reset();
     }
 
