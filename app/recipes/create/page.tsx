@@ -42,13 +42,16 @@ import {
   createIngredient,
   deleteIngredient,
   listVisibleIngredients,
+  promoteIngredientToVerifiedForTesting,
   updateIngredient as updateIngredientRecord,
   type IngredientRecord as IngredientLibraryItem,
 } from "../../lib/supabase/ingredients-db";
+import type { ImportedRecipeDraft } from "../../lib/recipe-url-import";
 
 
 
 type PlannerTab = "planner" | "recipes" | "create";
+type ImportMode = "website" | "code";
 
 type ActiveSlot =
   | { type: "meal"; key: MealSlotKey }
@@ -99,6 +102,60 @@ function normalizeIngredientName(value: string) {
   return value.trim().toLowerCase();
 }
 
+function sanitizeImportedIngredientName(value: string) {
+  return value
+    .replace(/\(\s*\$[^)]*\)/gi, "")
+    .replace(/\(\s*about[^)]*\)/gi, "")
+    .replace(/\(\s*approx[^)]*\)/gi, "")
+    .replace(/\(\s*approximately[^)]*\)/gi, "")
+    .replace(/\(\s*\d+(?:\.\d+)?\s*(?:oz|ounce|ounces|lb|lbs|pound|pounds|g|gram|grams|kg|kilogram|kilograms)[^)]*\)/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findBestIngredientMatch(
+  ingredientName: string,
+  ingredientLibrary: IngredientLibraryItem[],
+  ingredientLibraryByName: Map<string, IngredientLibraryItem>
+) {
+  const normalizedName = normalizeIngredientName(sanitizeImportedIngredientName(ingredientName));
+  if (!normalizedName) return null;
+
+  const exact = ingredientLibraryByName.get(normalizedName);
+  if (exact) return exact;
+
+  const candidates = ingredientLibrary
+    .filter((ingredient) => {
+      const candidateName = normalizeIngredientName(ingredient.name);
+      return (
+        normalizedName.includes(candidateName) ||
+        candidateName.includes(normalizedName)
+      );
+    })
+    .sort((a, b) => b.name.length - a.name.length);
+
+  return candidates[0] ?? null;
+}
+
+function parseImportedIngredientLine(line: string): Ingredient {
+  const cleaned = line.replace(/\s+/g, " ").trim();
+  if (!cleaned) return emptyIngredient();
+
+  const match = cleaned.match(
+    /^((?:\d+(?:\.\d+)?|\d+\/\d+|\d+\s+\d+\/\d+)(?:\s*[-–]\s*(?:\d+(?:\.\d+)?|\d+\/\d+|\d+\s+\d+\/\d+))?(?:\s+(?:cups?|cup|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|grams?|g|kilograms?|kg|cloves?|slices?|cans?|packages?|pkg|fillets?|breasts?|thighs?|eggs?|pinch|dash))?)\s+(?:of\s+)?(.+)$/i
+  );
+
+  if (!match) {
+    return { name: sanitizeImportedIngredientName(cleaned), qty: "", category: "other" };
+  }
+
+  return {
+    name: sanitizeImportedIngredientName(match[2]),
+    qty: match[1].trim(),
+    category: "other",
+  };
+}
+
 const WEIGHT_UNIT_TO_GRAMS: Record<string, number> = {
   g: 1,
   gram: 1,
@@ -129,6 +186,10 @@ type IngredientConversionProfile = {
   piece_g: number | null;
   piece_label: string | null;
 };
+
+const MILLILITERS_PER_CUP = 236.588;
+const MILLILITERS_PER_TABLESPOON = 14.7868;
+const MILLILITERS_PER_TEASPOON = 4.92892;
 
 const VOLUME_CONVERSIONS: IngredientVolumeConversion[] = [
   { ingredientKeywords: ["water"], cup: 236.59, tbsp: 14.79, tsp: 4.93 },
@@ -230,6 +291,28 @@ function matchesPieceLabel(unit: string, pieceLabel?: string | null) {
   return false;
 }
 
+function getMilliliterDensity(
+  ingredientName: string,
+  conversionProfile?: IngredientConversionProfile | null
+) {
+  if (conversionProfile?.cup_g != null) {
+    return Number(conversionProfile.cup_g) / MILLILITERS_PER_CUP;
+  }
+  if (conversionProfile?.tbsp_g != null) {
+    return Number(conversionProfile.tbsp_g) / MILLILITERS_PER_TABLESPOON;
+  }
+  if (conversionProfile?.tsp_g != null) {
+    return Number(conversionProfile.tsp_g) / MILLILITERS_PER_TEASPOON;
+  }
+
+  const conversion = findVolumeConversion(ingredientName);
+  if (conversion) {
+    return conversion.cup / MILLILITERS_PER_CUP;
+  }
+
+  return null;
+}
+
 function parseQuantityToGrams(
   qty?: string,
   ingredientName = "",
@@ -244,10 +327,63 @@ function parseQuantityToGrams(
   const amount = parseFractionalAmount(match[1]);
   if (amount == null || amount <= 0) return null;
 
-  const unit = (match[2] ?? "g").trim();
+  const parsedUnit = match[2]?.trim().toLowerCase() ?? "";
+  const inferredPieceLabel =
+    conversionProfile?.piece_label && normalizeIngredientName(ingredientName).includes(
+      normalizeIngredientName(conversionProfile.piece_label)
+    )
+      ? conversionProfile.piece_label
+      : null;
+
+  if (!parsedUnit) {
+    if (conversionProfile?.piece_g != null && inferredPieceLabel) {
+      return roundMacroValue(amount * Number(conversionProfile.piece_g));
+    }
+
+    const singularPieceConversion = PIECE_CONVERSIONS.find((conversion) =>
+      conversion.ingredientKeywords.some((keyword) =>
+        normalizeIngredientName(ingredientName).includes(keyword)
+      )
+    );
+
+    if (singularPieceConversion) {
+      return roundMacroValue(amount * singularPieceConversion.gramsPerUnit);
+    }
+  }
+
+  const unit = parsedUnit || "g";
 
   if (unit in WEIGHT_UNIT_TO_GRAMS) {
     return roundMacroValue(amount * WEIGHT_UNIT_TO_GRAMS[unit]);
+  }
+
+  if (
+    [
+      "ml",
+      "milliliter",
+      "milliliters",
+      "millilitre",
+      "millilitres",
+      "l",
+      "liter",
+      "liters",
+      "litre",
+      "litres",
+    ].includes(unit)
+  ) {
+    const density = getMilliliterDensity(ingredientName, conversionProfile);
+    if (density == null) return null;
+
+    const milliliters =
+      unit === "l" ||
+      unit === "liter" ||
+      unit === "liters" ||
+      unit === "litre" ||
+      unit === "litres"
+        ? amount * 1000
+        : amount;
+
+    return roundMacroValue(milliliters * density);
   }
 
   if (["cup", "cups", "tbsp", "tablespoon", "tablespoons", "tsp", "teaspoon", "teaspoons"].includes(unit)) {
@@ -514,6 +650,16 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [recipeShareCode, setRecipeShareCode] = useState("");
   const [recipeShareMsg, setRecipeShareMsg] = useState<string | null>(null);
   const [recipeShareErr, setRecipeShareErr] = useState<string | null>(null);
+  const [importMode, setImportMode] = useState<ImportMode>("website");
+  const [recipeUrl, setRecipeUrl] = useState("");
+  const [recipeUrlImporting, setRecipeUrlImporting] = useState(false);
+  const [recipeUrlErr, setRecipeUrlErr] = useState<string | null>(null);
+  const [recipeUrlMsg, setRecipeUrlMsg] = useState<string | null>(null);
+  const [lastImportedWebsiteRecipe, setLastImportedWebsiteRecipe] =
+    useState<ImportedRecipeDraft | null>(null);
+  const [importPreviewRecipe, setImportPreviewRecipe] =
+    useState<ImportedRecipeDraft | null>(null);
+  const [importPreviewWarning, setImportPreviewWarning] = useState<string | null>(null);
 
 const [lastLogUndo, setLastLogUndo] = useState<
   | {
@@ -676,7 +822,8 @@ useEffect(() => {
         const matchedIngredient =
           (ingredient.ingredientId
             ? ingredientLibrary.find((item) => item.id === ingredient.ingredientId)
-            : undefined) ?? ingredientLibraryByName.get(normalizeIngredientName(name));
+            : undefined) ??
+          findBestIngredientMatch(name, ingredientLibrary, ingredientLibraryByName);
 
         const quantityGrams =
           ingredient.quantityGrams ??
@@ -1321,7 +1468,9 @@ setPlannerMsg(
 
         const next = { ...ing, ...patch };
         const normalizedName = normalizeIngredientName(next.name);
-        const matchedIngredient = ingredientLibraryByName.get(normalizedName);
+        const matchedIngredient =
+          ingredientLibraryByName.get(normalizedName) ??
+          findBestIngredientMatch(next.name, ingredientLibrary, ingredientLibraryByName);
 
         if (patch.name !== undefined) {
           if (matchedIngredient) {
@@ -1536,6 +1685,54 @@ setPlannerMsg(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Private ingredient could not be deleted.";
+      setIngredientManagerError(message);
+      setIngredientManagerSaving(false);
+    }
+  }
+
+  async function promotePrivateIngredientForTesting(ingredient: IngredientLibraryItem) {
+    if (!currentUserId) {
+      setIngredientManagerError("You need to be signed in to promote a private ingredient.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Temporarily promote "${ingredient.name}" into the verified ingredient library for testing?`
+    );
+
+    if (!confirmed) return;
+
+    setIngredientManagerSaving(true);
+    setIngredientManagerError(null);
+    setIngredientManagerMsg(null);
+
+    try {
+      const promotedIngredient = await promoteIngredientToVerifiedForTesting(
+        ingredient.id,
+        currentUserId
+      );
+
+      const refreshedIngredients = await listVisibleIngredients(currentUserId);
+      setIngredientLibrary(refreshedIngredients);
+
+      setIngredients((prev) =>
+        prev.map((item) =>
+          item.ingredientId === ingredient.id
+            ? {
+                ...item,
+                name: promotedIngredient.name,
+                isLinked: true,
+                isPrivate: false,
+              }
+            : item
+        )
+      );
+
+      stopEditingIngredient();
+      setIngredientManagerMsg(`Promoted "${promotedIngredient.name}" to the verified library.`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Private ingredient could not be promoted.";
       setIngredientManagerError(message);
       setIngredientManagerSaving(false);
     }
@@ -1821,6 +2018,165 @@ async function onImportRecipe() {
   } catch {
     setRecipeShareMsg(null);
     setRecipeShareErr("Invalid recipe code.");
+  }
+}
+
+function applyImportedRecipeDraft(recipe: ImportedRecipeDraft) {
+  setRecipeName(recipe.title);
+  setDefaultServings(Math.max(1, recipe.servings ?? 2));
+  setIngredients(
+    recipe.ingredients.length > 0
+      ? recipe.ingredients.map((line) => parseImportedIngredientLine(line))
+      : [emptyIngredient()]
+  );
+  setSteps(recipe.steps.length > 0 ? recipe.steps : [""]);
+  setTotalCalories("");
+  setTotalProtein("");
+  setTotalCarbs("");
+  setTotalFat("");
+  setRecipeCreateError(null);
+  setRecipeCreateMsg(
+    `Imported ${recipe.ingredients.length} ingredient${
+      recipe.ingredients.length === 1 ? "" : "s"
+    } and ${recipe.steps.length} step${recipe.steps.length === 1 ? "" : "s"} from the website.`
+  );
+  window.setTimeout(() => setRecipeCreateMsg(null), 2200);
+}
+
+function updateImportPreviewField(
+  field: "title" | "description" | "servings",
+  value: string
+) {
+  setImportPreviewRecipe((prev) => {
+    if (!prev) return prev;
+
+    if (field === "servings") {
+      const parsed = Number(value);
+      return {
+        ...prev,
+        servings: Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null,
+      };
+    }
+
+    return {
+      ...prev,
+      [field]: value,
+    };
+  });
+}
+
+function updateImportPreviewList(
+  field: "ingredients" | "steps",
+  index: number,
+  value: string
+) {
+  setImportPreviewRecipe((prev) => {
+    if (!prev) return prev;
+    const next = [...prev[field]];
+    next[index] = value;
+    return {
+      ...prev,
+      [field]: next,
+    };
+  });
+}
+
+function removeImportPreviewListItem(field: "ingredients" | "steps", index: number) {
+  setImportPreviewRecipe((prev) => {
+    if (!prev) return prev;
+    const next = prev[field].filter((_, itemIndex) => itemIndex !== index);
+    return {
+      ...prev,
+      [field]: next.length > 0 ? next : [""],
+    };
+  });
+}
+
+function addImportPreviewListItem(field: "ingredients" | "steps") {
+  setImportPreviewRecipe((prev) => {
+    if (!prev) return prev;
+    return {
+      ...prev,
+      [field]: [...prev[field], ""],
+    };
+  });
+}
+
+function autoResizeTextarea(event: React.FormEvent<HTMLTextAreaElement>) {
+  const textarea = event.currentTarget;
+  textarea.style.height = "0px";
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function applyImportPreviewToBuilder() {
+  if (!importPreviewRecipe) return;
+
+  const cleanedPreview: ImportedRecipeDraft = {
+    ...importPreviewRecipe,
+    title: importPreviewRecipe.title.trim(),
+    description: importPreviewRecipe.description?.trim() || null,
+    ingredients: importPreviewRecipe.ingredients
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0),
+    steps: importPreviewRecipe.steps
+      .map((step) => step.trim())
+      .filter((step) => step.length > 0),
+  };
+
+  applyImportedRecipeDraft(cleanedPreview);
+  setLastImportedWebsiteRecipe(cleanedPreview);
+  setImportPreviewRecipe(null);
+  setImportPreviewWarning(null);
+  setRecipeUrl("");
+  setRecipeUrlErr(null);
+  setRecipeUrlMsg("Import preview applied to the builder.");
+  window.setTimeout(() => setRecipeUrlMsg(null), 2200);
+}
+
+async function onImportRecipeUrl() {
+  const trimmedUrl = recipeUrl.trim();
+  if (!trimmedUrl) return;
+
+  setRecipeUrlImporting(true);
+  setRecipeUrlErr(null);
+  setRecipeUrlMsg(null);
+
+  try {
+    const response = await fetch("/api/recipe-import", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ url: trimmedUrl }),
+    });
+
+    const payload = (await response.json()) as {
+      error?: string;
+      recipe?: ImportedRecipeDraft;
+      warning?: string | null;
+    };
+
+    if (!response.ok || !payload.recipe) {
+      throw new Error(payload.error || "Recipe URL could not be imported.");
+    }
+
+    setImportPreviewRecipe({
+      ...payload.recipe,
+      ingredients:
+        payload.recipe.ingredients.length > 0 ? payload.recipe.ingredients : [""],
+      steps: payload.recipe.steps.length > 0 ? payload.recipe.steps : [""],
+    });
+    setImportPreviewWarning(payload.warning ?? null);
+    setRecipeUrlMsg("Recipe website imported. Review the cleanup preview below.");
+    window.setTimeout(() => setRecipeUrlMsg(null), 2200);
+  } catch (error) {
+    setRecipeUrlErr(
+      error instanceof Error
+        ? error.message
+        : "Recipe website could not be imported."
+    );
+  } finally {
+    setRecipeUrlImporting(false);
   }
 }
 
@@ -2272,22 +2628,26 @@ const activeSlotLabel = (() => {
                   No verified ingredients match &quot;{publicIngredientSearch.trim()}&quot;.
                 </div>
               ) : (
-                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                   {filteredPublicIngredients.map((ingredient) => (
                     <div
                       key={ingredient.id}
                       className="rounded-xl border border-gray-700 bg-gray-950/60 p-3"
                     >
-                      <div className="text-sm font-semibold text-white">{ingredient.name}</div>
-                      <div className="mt-1 text-xs text-gray-400">
-                        Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
-                        {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
-                        {ingredient.reference_fat_g}
-                      </div>
-                      <div className="mt-3">
-                        <MealActionButton onClick={() => addIngredientToRecipeBuilder(ingredient)}>
-                          Use In Recipe
-                        </MealActionButton>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-white">{ingredient.name}</div>
+                          <div className="mt-1 text-xs text-gray-400">
+                            Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
+                            {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
+                            {ingredient.reference_fat_g}
+                          </div>
+                        </div>
+                        <div className="mt-3">
+                          <MealActionButton onClick={() => addIngredientToRecipeBuilder(ingredient)}>
+                            Use In Recipe
+                          </MealActionButton>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -2322,17 +2682,29 @@ const activeSlotLabel = (() => {
                   No private ingredients match &quot;{ingredientManagerSearch.trim()}&quot;.
                 </div>
               ) : (
-                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                   {filteredAndSortedPrivateIngredients.map((ingredient) => (
                     <div
                       key={ingredient.id}
                       className="rounded-xl border border-gray-700 bg-gray-950/60 p-3"
                     >
-                      <div className="text-sm font-semibold text-white">{ingredient.name}</div>
-                      <div className="mt-1 text-xs text-gray-400">
-                        Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
-                        {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
-                        {ingredient.reference_fat_g}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-white">{ingredient.name}</div>
+                          <div className="mt-1 text-xs text-gray-400">
+                            Ref {ingredient.reference_amount_g}g • {ingredient.reference_calories} kcal • P{" "}
+                            {ingredient.reference_protein_g} • C {ingredient.reference_carbs_g} • F{" "}
+                            {ingredient.reference_fat_g}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => promotePrivateIngredientForTesting(ingredient)}
+                          disabled={ingredientManagerSaving}
+                          className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Test Promote
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -2361,39 +2733,284 @@ const activeSlotLabel = (() => {
             )}
 
             <div className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
-              <h3 className="text-sm font-semibold text-white">Import Recipe Code</h3>
-              <p className="mt-1 text-sm text-gray-400">
-                Paste a compact recipe code here to pull it into your recipe book, then keep building.
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">Import Recipe</h3>
+                  <p className="mt-1 text-sm text-gray-400">
+                    Pull a recipe from a website or use a share code, then keep editing it here before saving.
+                  </p>
+                </div>
+                <div className="grid min-w-[170px] grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setImportMode("website")}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                      importMode === "website"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                    }`}
+                  >
+                    Website
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportMode("code")}
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                      importMode === "code"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                    }`}
+                  >
+                    Share Code
+                  </button>
+                </div>
+              </div>
 
-              {recipeShareMsg && (
-                <div className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-                  {recipeShareMsg}
+              {importMode === "website" ? (
+                <div className="mt-3">
+                  {recipeUrlMsg ? (
+                    <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                      {recipeUrlMsg}
+                    </div>
+                  ) : null}
+
+                  {recipeUrlErr ? (
+                    <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                      {recipeUrlErr}
+                    </div>
+                  ) : null}
+
+                  <input
+                    value={recipeUrl}
+                    onChange={(e) => setRecipeUrl(e.target.value)}
+                    placeholder="Paste a recipe website URL..."
+                    className="mt-3 w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white placeholder:text-gray-500"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={onImportRecipeUrl}
+                    disabled={!recipeUrl.trim() || recipeUrlImporting}
+                    className="mt-3 w-full rounded-2xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {recipeUrlImporting ? "Importing Website..." : "Import From Website"}
+                  </button>
+
+                  <p className="mt-3 text-xs text-gray-500">
+                    Best results come from recipe sites that publish structured recipe data.
+                  </p>
+
+                  {lastImportedWebsiteRecipe ? (
+                    <div className="mt-3 rounded-2xl border border-blue-500/20 bg-blue-500/5 p-3">
+                      <div className="text-sm font-semibold text-blue-100">
+                        Last website import: {lastImportedWebsiteRecipe.title}
+                      </div>
+                      <div className="mt-1 text-xs text-blue-100/80">
+                        {lastImportedWebsiteRecipe.ingredients.length} ingredients
+                        {lastImportedWebsiteRecipe.steps.length
+                          ? ` • ${lastImportedWebsiteRecipe.steps.length} steps`
+                          : ""}
+                        {lastImportedWebsiteRecipe.servings
+                          ? ` • ${lastImportedWebsiteRecipe.servings} servings`
+                          : ""}
+                          </div>
+                    </div>
+                  ) : null}
+
+                  {importPreviewRecipe ? (
+                    <div className="mt-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-white">Import Cleanup Preview</h4>
+                          <p className="mt-1 text-xs text-gray-400">
+                            Review the parsed recipe before it fills the builder.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setImportPreviewRecipe(null)}
+                          className="rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+
+                      {importPreviewWarning ? (
+                        <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                          {importPreviewWarning}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <label className="mb-1 block text-sm text-gray-300">Recipe name</label>
+                          <input
+                            value={importPreviewRecipe.title}
+                            onChange={(e) => updateImportPreviewField("title", e.target.value)}
+                            className="w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white"
+                          />
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-sm text-gray-300">Servings</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={importPreviewRecipe.servings ?? ""}
+                              onChange={(e) => updateImportPreviewField("servings", e.target.value)}
+                              className="w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-sm text-gray-300">Source</label>
+                            <div className="rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-xs text-gray-400">
+                              {importPreviewRecipe.sourceUrl}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="mb-1 block text-sm text-gray-300">Description</label>
+                          <textarea
+                            ref={(node) => {
+                              if (!node) return;
+                              node.style.height = "0px";
+                              node.style.height = `${node.scrollHeight}px`;
+                            }}
+                            value={importPreviewRecipe.description ?? ""}
+                            onChange={(e) => updateImportPreviewField("description", e.target.value)}
+                            onInput={autoResizeTextarea}
+                            rows={3}
+                            className="w-full resize-none overflow-hidden rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <label className="text-sm font-semibold text-gray-200">Ingredients</label>
+                            <button
+                              type="button"
+                              onClick={() => addImportPreviewListItem("ingredients")}
+                              className="rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800"
+                            >
+                              + Add Ingredient
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {importPreviewRecipe.ingredients.map((line, index) => (
+                              <div key={`preview-ingredient-${index}`} className="flex gap-2">
+                                <input
+                                  value={line}
+                                  onChange={(e) =>
+                                    updateImportPreviewList("ingredients", index, e.target.value)
+                                  }
+                                  className="flex-1 rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeImportPreviewListItem("ingredients", index)}
+                                  className="rounded-2xl bg-gray-900 px-3 py-3 text-xs font-semibold text-white hover:bg-gray-800"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <label className="text-sm font-semibold text-gray-200">Steps</label>
+                            <button
+                              type="button"
+                              onClick={() => addImportPreviewListItem("steps")}
+                              className="rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-800"
+                            >
+                              + Add Step
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {importPreviewRecipe.steps.map((step, index) => (
+                              <div key={`preview-step-${index}`} className="flex gap-2">
+                                <textarea
+                                  ref={(node) => {
+                                    if (!node) return;
+                                    node.style.height = "0px";
+                                    node.style.height = `${node.scrollHeight}px`;
+                                  }}
+                                  value={step}
+                                  onChange={(e) =>
+                                    updateImportPreviewList("steps", index, e.target.value)
+                                  }
+                                  onInput={autoResizeTextarea}
+                                  rows={4}
+                                  className="flex-1 resize-none overflow-hidden rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm leading-6 text-white [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeImportPreviewListItem("steps", index)}
+                                  className="self-start rounded-2xl bg-gray-900 px-3 py-3 text-xs font-semibold text-white hover:bg-gray-800"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={applyImportPreviewToBuilder}
+                            className="flex-1 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
+                          >
+                            Apply To Builder
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setImportPreviewRecipe(null)}
+                            className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-800"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-3">
+                  {recipeShareMsg && (
+                    <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+                      {recipeShareMsg}
+                    </div>
+                  )}
+
+                  {recipeShareErr && (
+                    <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                      {recipeShareErr}
+                    </div>
+                  )}
+
+                  <textarea
+                    value={recipeShareCode}
+                    onChange={(e) => setRecipeShareCode(e.target.value)}
+                    placeholder="Paste recipe code here..."
+                    rows={3}
+                    className="mt-3 w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white placeholder:text-gray-500"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={onImportRecipe}
+                    disabled={!recipeShareCode.trim()}
+                    className="mt-3 w-full rounded-2xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Import Recipe
+                  </button>
                 </div>
               )}
-
-              {recipeShareErr && (
-                <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-                  {recipeShareErr}
-                </div>
-              )}
-
-              <textarea
-                value={recipeShareCode}
-                onChange={(e) => setRecipeShareCode(e.target.value)}
-                placeholder="Paste recipe code here..."
-                rows={3}
-                className="mt-3 w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-              />
-
-              <button
-                type="button"
-                onClick={onImportRecipe}
-                disabled={!recipeShareCode.trim()}
-                className="mt-3 w-full rounded-2xl bg-emerald-600 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Import Recipe
-              </button>
             </div>
 
             <div>
@@ -2542,8 +3159,9 @@ const activeSlotLabel = (() => {
             <div>
               <h3 className="mb-2 text-sm font-semibold text-gray-300">Ingredients</h3>
               <div className="mb-3 rounded-xl border border-gray-700 bg-gray-950/50 p-3 text-xs text-gray-400">
-                Quantity helpers: `g`, `kg`, `oz`, and `lb` always work. `cup`, `tbsp`, and `tsp`
-                now cover more common items like yogurt, cottage cheese, rice, oats, quinoa,
+                Quantity helpers: `g`, `kg`, `oz`, and `lb` always work. `ml` and `L` now work
+                for supported liquids and ingredients with saved volume conversions. `cup`, `tbsp`,
+                and `tsp` cover more common items like yogurt, cottage cheese, rice, oats, quinoa,
                 pasta, berries, broth, oil, butter, honey, maple syrup, nut butters, protein
                 powder, flour, and sugar. Piece helpers also cover common foods like chicken
                 cuts, eggs, bananas, avocados, apples, oranges, potatoes, onions, peppers,
@@ -2585,20 +3203,28 @@ const activeSlotLabel = (() => {
                           className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
                         />
                         <div className="mt-1 text-xs text-gray-500">
-                          Supports `g`, `kg`, `oz`, `lb`, and some helpers like `1 cup`, `1 tbsp`, `1 egg`, or `1 breast`.
+                          Supports `g`, `kg`, `oz`, `lb`, `ml`, `L`, and helpers like `1 cup`, `1 tbsp`, `1 egg`, or `1 breast`.
                         </div>
                         {formatParsedQuantityHint(
                           ing,
                           ing.ingredientId
                             ? ingredientLibrary.find((item) => item.id === ing.ingredientId) ?? null
-                            : ingredientLibraryByName.get(normalizeIngredientName(ing.name)) ?? null
+                            : findBestIngredientMatch(
+                                ing.name,
+                                ingredientLibrary,
+                                ingredientLibraryByName
+                              )
                         ) && (
                           <div className="mt-1 text-xs text-emerald-300">
                             {formatParsedQuantityHint(
                               ing,
                               ing.ingredientId
                                 ? ingredientLibrary.find((item) => item.id === ing.ingredientId) ?? null
-                                : ingredientLibraryByName.get(normalizeIngredientName(ing.name)) ?? null
+                                : findBestIngredientMatch(
+                                    ing.name,
+                                    ingredientLibrary,
+                                    ingredientLibraryByName
+                                  )
                             )}
                           </div>
                         )}
@@ -2905,3 +3531,4 @@ const activeSlotLabel = (() => {
     </AppShell>
   );
 }
+

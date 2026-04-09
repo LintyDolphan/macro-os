@@ -11,7 +11,7 @@ import {
   getSnackSortOrder,
   mapPlannedMealsToPlannerState,
 } from "../lib/planner-mappers";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "../components/AppShell";
 import {
   TEMPLATE_RECIPES,
@@ -36,15 +36,22 @@ import {
 import { loadGroceryList, saveGroceryList, type GroceryMode } from "../lib/grocery";
 import { getMyHousehold, type HouseholdRow } from "../lib/households-db";
 import { addIngredientsToGrocery } from "../lib/mealplan";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabase/client";
 import {
   createIngredient,
   deleteIngredient,
   listVisibleIngredients,
+  promoteIngredientToVerifiedForTesting,
   updateIngredient as updateIngredientRecord,
   type IngredientRecord as IngredientLibraryItem,
 } from "../lib/supabase/ingredients-db";
+import {
+  createInventorySuggestion,
+  listInventoryItems,
+  type InventoryLocation,
+  type InventoryItemRecord,
+} from "../lib/supabase/inventory-db";
 
 
 
@@ -97,6 +104,47 @@ function emptyIngredient(): Ingredient {
 
 function normalizeIngredientName(value: string) {
   return value.trim().toLowerCase();
+}
+
+function summarizeRecipeInventory(
+  recipe: Recipe,
+  inventoryByIngredientId: Map<string, InventoryItemRecord[]>,
+  inventoryByName: Map<string, InventoryItemRecord[]>
+) {
+  const matchedItemIds = new Set<string>();
+  let lowStockCount = 0;
+
+  recipe.ingredients.forEach((ingredient) => {
+    const matches = ingredient.ingredientId
+      ? inventoryByIngredientId.get(ingredient.ingredientId) ?? []
+      : inventoryByName.get(normalizeIngredientName(ingredient.name)) ?? [];
+
+    matches.forEach((item) => {
+      if (matchedItemIds.has(item.id)) return;
+      matchedItemIds.add(item.id);
+      if (item.is_low_stock) lowStockCount += 1;
+    });
+  });
+
+  return {
+    onHandCount: matchedItemIds.size,
+    lowStockCount,
+  };
+}
+
+function inventoryLocationForCategory(category: Ingredient["category"]): InventoryLocation {
+  switch (category) {
+    case "produce":
+    case "dairy":
+    case "meat":
+      return "fridge";
+    case "frozen":
+      return "freezer";
+    case "snacks":
+      return "snacks";
+    default:
+      return "pantry";
+  }
 }
 
 function parseQuantityToGrams(qty?: string) {
@@ -226,6 +274,76 @@ function formatMacroPreview(recipe: Recipe, servings: number) {
 }
 
 
+async function createInventorySuggestionsForLoggedRecipe(
+  userId: string | null,
+  recipe: Recipe,
+  servings: number,
+  sourceType: "meal_log" | "snack_log",
+  sourceId: string,
+  sourceLabel: string
+) {
+  if (!userId) return 0;
+
+  const factor = servings / Math.max(recipe.defaultServings || 1, 1);
+  const grouped = new Map<
+    string,
+    {
+      name: string;
+      linkedIngredientId: string;
+      location: InventoryLocation;
+      quantityDelta: number;
+    }
+  >();
+
+  for (const ingredient of recipe.ingredients) {
+    if (!ingredient.ingredientId || ingredient.quantityGrams == null) continue;
+
+    const quantityDelta = Math.round(ingredient.quantityGrams * factor * 100) / 100;
+    if (!Number.isFinite(quantityDelta) || quantityDelta <= 0) continue;
+
+    const key = `${ingredient.ingredientId}:${ingredient.category}`;
+    const existing = grouped.get(key);
+
+    if (existing) {
+      existing.quantityDelta += quantityDelta;
+      continue;
+    }
+
+    grouped.set(key, {
+      name: ingredient.name,
+      linkedIngredientId: ingredient.ingredientId,
+      location: inventoryLocationForCategory(ingredient.category),
+      quantityDelta,
+    });
+  }
+
+  const suggestions = Array.from(grouped.values());
+
+  await Promise.all(
+    suggestions.map((item) =>
+      createInventorySuggestion(userId, {
+        linked_ingredient_id: item.linkedIngredientId,
+        source_type: sourceType,
+        action_type: "consume",
+        proposed_name: item.name,
+        proposed_location: item.location,
+        quantity_delta: item.quantityDelta,
+        unit: "g",
+        confidence: 0.72,
+        source_id: sourceId,
+        source_label: sourceLabel,
+        reason: `Estimated from logged recipe: ${recipe.name}`,
+        metadata: {
+          recipe_id: recipe.id,
+          servings,
+        },
+      })
+    )
+  );
+
+  return suggestions.length;
+}
+
 export default function MealsPage() {
   const [tab, setTab] = useState<PlannerTab>("planner");
 
@@ -234,7 +352,9 @@ export default function MealsPage() {
 const [authChecked, setAuthChecked] = useState(false);
 const [redirecting, setRedirecting] = useState(false);
 const router = useRouter();
+const searchParams = useSearchParams();
 const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+const [handledPickerKey, setHandledPickerKey] = useState<string | null>(null);
 const [groceryMode, setGroceryMode] = useState<GroceryMode>("personal");
 const [household, setHousehold] = useState<HouseholdRow | null>(null);
 
@@ -274,6 +394,7 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<Ingredient[]>([emptyIngredient()]);
   const [steps, setSteps] = useState<string[]>([""]);
   const [ingredientLibrary, setIngredientLibrary] = useState<IngredientLibraryItem[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemRecord[]>([]);
   const [recipeCreateError, setRecipeCreateError] = useState<string | null>(null);
   const [recipeCreateMsg, setRecipeCreateMsg] = useState<string | null>(null);
   const [customIngredientRow, setCustomIngredientRow] = useState<number | null>(null);
@@ -315,8 +436,6 @@ const [lastLogUndo, setLastLogUndo] = useState<
     }
   | null
 >(null);
-
-
 useEffect(() => {
   async function init() {
     try {
@@ -354,6 +473,13 @@ useEffect(() => {
         setIngredientLibrary(visibleIngredients);
       } catch (error) {
         console.warn("Ingredient library failed during meals init.", error);
+      }
+
+      try {
+        const loadedInventoryItems = await listInventoryItems();
+        setInventoryItems(loadedInventoryItems);
+      } catch (error) {
+        console.warn("Inventory signals failed during meals init.", error);
       }
 
       let recipes: Recipe[] = [];
@@ -407,6 +533,30 @@ useEffect(() => {
     () => ingredientLibrary.filter((ingredient) => ingredient.visibility === "private"),
     [ingredientLibrary]
   );
+  const inventoryByIngredientId = useMemo(() => {
+    const map = new Map<string, InventoryItemRecord[]>();
+
+    inventoryItems.forEach((item) => {
+      if (!item.linked_ingredient_id) return;
+      const existing = map.get(item.linked_ingredient_id) ?? [];
+      existing.push(item);
+      map.set(item.linked_ingredient_id, existing);
+    });
+
+    return map;
+  }, [inventoryItems]);
+  const inventoryByName = useMemo(() => {
+    const map = new Map<string, InventoryItemRecord[]>();
+
+    inventoryItems.forEach((item) => {
+      const key = normalizeIngredientName(item.name);
+      const existing = map.get(key) ?? [];
+      existing.push(item);
+      map.set(key, existing);
+    });
+
+    return map;
+  }, [inventoryItems]);
   const publicIngredients = useMemo(
     () =>
       ingredientLibrary.filter(
@@ -631,18 +781,22 @@ async function undoLastLog() {
   window.setTimeout(() => setPlannerMsg(null), 1800);
 }
 
-async function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
+const setMealSlotRecipe = useCallback(async (
+  slot: MealSlotKey,
+  recipe: Recipe,
+  dayKey = selectedDay
+) => {
   const servings =
-    plannerByDay[selectedDay].mealSlots[slot].servings ||
+    plannerByDay[dayKey].mealSlots[slot].servings ||
     recipe.defaultServings ||
     1;
 
   setPlannerByDay((prev) => ({
     ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
+    [dayKey]: {
+      ...prev[dayKey],
       mealSlots: {
-        ...prev[selectedDay].mealSlots,
+        ...prev[dayKey].mealSlots,
         [slot]: {
           recipe,
           servings,
@@ -653,7 +807,7 @@ async function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
   }));
 
   const result = await upsertPlannedMeal({
-    day_key: selectedDay,
+    day_key: dayKey,
     slot_type: "meal",
     slot_key: slot,
     recipe_id: recipe.isTemplate ? null : recipe.id,
@@ -668,7 +822,7 @@ async function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
     setPlannerErr(result.error);
     return;
   }
-}
+}, [plannerByDay, selectedDay]);
 
 function collectPlannerIngredients() {
   const collected: Ingredient[] = [];
@@ -793,6 +947,28 @@ async function markMealSlotLogged(slot: MealSlotKey) {
     setPlannerErr(result.error);
     return;
   }
+
+  try {
+    const suggestionCount = await createInventorySuggestionsForLoggedRecipe(
+      currentUserId,
+      meal.recipe,
+      meal.servings,
+      "meal_log",
+      entry.id,
+      name
+    );
+
+    if (suggestionCount > 0) {
+      setPlannerMsg(
+        `${name} logged. ${suggestionCount} inventory suggestion${
+          suggestionCount === 1 ? "" : "s"
+        } ready to review.`
+      );
+      window.setTimeout(() => setPlannerMsg(null), 2200);
+    }
+  } catch (error) {
+    console.error("Failed to create inventory suggestions for meal log:", error);
+  }
 }
 
 async function clearSnack(id: string) {
@@ -851,6 +1027,28 @@ async function markSnackLogged(id: string) {
     setPlannerMsg(null);
     setPlannerErr(result.error);
     return;
+  }
+
+  try {
+    const suggestionCount = await createInventorySuggestionsForLoggedRecipe(
+      currentUserId,
+      snack.recipe,
+      snack.servings,
+      "snack_log",
+      entry.id,
+      name
+    );
+
+    if (suggestionCount > 0) {
+      setPlannerMsg(
+        `${name} logged. ${suggestionCount} inventory suggestion${
+          suggestionCount === 1 ? "" : "s"
+        } ready to review.`
+      );
+      window.setTimeout(() => setPlannerMsg(null), 2200);
+    }
+  } catch (error) {
+    console.error("Failed to create inventory suggestions for snack log:", error);
   }
 }
 
@@ -944,16 +1142,20 @@ function collectAllPlannedIngredients() {
 
   return collected;
 }
-async function setSnackRecipe(id: string, recipe: Recipe) {
-  const currentSnack = plannerByDay[selectedDay].snackSlots.find((snack) => snack.id === id);
+const setSnackRecipeForDay = useCallback(async (
+  id: string,
+  recipe: Recipe,
+  dayKey = selectedDay
+) => {
+  const currentSnack = plannerByDay[dayKey].snackSlots.find((snack) => snack.id === id);
   const servings = currentSnack?.servings || recipe.defaultServings || 1;
-  const sortOrder = getSnackSortOrder(plannerByDay[selectedDay].snackSlots, id);
+  const sortOrder = getSnackSortOrder(plannerByDay[dayKey].snackSlots, id);
 
   setPlannerByDay((prev) => ({
     ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
-      snackSlots: prev[selectedDay].snackSlots.map((snack) =>
+    [dayKey]: {
+      ...prev[dayKey],
+      snackSlots: prev[dayKey].snackSlots.map((snack) =>
         snack.id === id
           ? {
               ...snack,
@@ -967,7 +1169,7 @@ async function setSnackRecipe(id: string, recipe: Recipe) {
   }));
 
   const result = await upsertPlannedMeal({
-    day_key: selectedDay,
+    day_key: dayKey,
     slot_type: "snack",
     slot_key: id,
     recipe_id: recipe.isTemplate ? null : recipe.id,
@@ -982,7 +1184,7 @@ async function setSnackRecipe(id: string, recipe: Recipe) {
     setPlannerErr(result.error);
     return;
   }
-}
+}, [plannerByDay, selectedDay]);
 async function updateMealSlotServings(slot: MealSlotKey, delta: number) {
   const currentSlot = plannerByDay[selectedDay].mealSlots[slot];
   const nextServings = Math.max(1, currentSlot.servings + delta);
@@ -1050,14 +1252,23 @@ setPlannerMsg(
   }
 }
 
-  function chooseMealForSlot(slot: MealSlotKey) {
-    setActiveSlot({ type: "meal", key: slot });
-    setTab("recipes");
-  }
+function chooseMealForSlot(slot: MealSlotKey) {
+  router.push(
+    `/recipes?pickForPlanner=1&day=${selectedDay}&slotType=meal&slotKey=${slot}&slotLabel=${
+      slot.charAt(0).toUpperCase() + slot.slice(1)
+    }`
+  );
+}
 
-  function chooseMealForSnack(id: string) {
-    setActiveSlot({ type: "snack", key: id });
-    setTab("recipes");
+function chooseMealForSnack(id: string) {
+    const snackIndex = snackSlots.findIndex((snack) => snack.id === id);
+    const slotLabel = snackIndex >= 0 ? `Snack ${snackIndex + 1}` : "Snack";
+
+    router.push(
+      `/recipes?pickForPlanner=1&day=${selectedDay}&slotType=snack&slotKey=${id}&slotLabel=${encodeURIComponent(
+        slotLabel
+      )}`
+    );
   }
 
   async function assignRecipeToActiveSlot(recipe: Recipe) {
@@ -1066,7 +1277,7 @@ setPlannerMsg(
   if (activeSlot.type === "meal") {
     await setMealSlotRecipe(activeSlot.key, recipe);
   } else {
-    await setSnackRecipe(activeSlot.key, recipe);
+      await setSnackRecipeForDay(activeSlot.key, recipe);
   }
 
   setActiveSlot(null);
@@ -1271,6 +1482,54 @@ setPlannerMsg(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Private ingredient could not be deleted.";
+      setIngredientManagerError(message);
+      setIngredientManagerSaving(false);
+    }
+  }
+
+  async function promotePrivateIngredientForTesting(ingredient: IngredientLibraryItem) {
+    if (!currentUserId) {
+      setIngredientManagerError("You need to be signed in to promote a private ingredient.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Temporarily promote "${ingredient.name}" into the verified ingredient library for testing?`
+    );
+
+    if (!confirmed) return;
+
+    setIngredientManagerSaving(true);
+    setIngredientManagerError(null);
+    setIngredientManagerMsg(null);
+
+    try {
+      const promotedIngredient = await promoteIngredientToVerifiedForTesting(
+        ingredient.id,
+        currentUserId
+      );
+
+      const refreshedIngredients = await listVisibleIngredients(currentUserId);
+      setIngredientLibrary(refreshedIngredients);
+
+      setIngredients((prev) =>
+        prev.map((item) =>
+          item.ingredientId === ingredient.id
+            ? {
+                ...item,
+                name: promotedIngredient.name,
+                isLinked: true,
+                isPrivate: false,
+              }
+            : item
+        )
+      );
+
+      stopEditingIngredient();
+      setIngredientManagerMsg(`Promoted "${promotedIngredient.name}" to the verified library.`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Private ingredient could not be promoted.";
       setIngredientManagerError(message);
       setIngredientManagerSaving(false);
     }
@@ -1539,14 +1798,6 @@ async function onImportRecipe() {
   }
 }
 
-if (redirecting || !authChecked) {
-  return (
-    <AppShell title="Meals">
-      <div className="text-sm text-gray-400">Loading...</div>
-    </AppShell>
-  );
-}
-
 const activeSlotLabel = (() => {
   if (!activeSlot) return null;
   if (activeSlot.type === "meal") {
@@ -1556,6 +1807,86 @@ const activeSlotLabel = (() => {
   const snackIndex = snackSlots.findIndex((snack) => snack.id === activeSlot.key);
   return snackIndex >= 0 ? `Snack ${snackIndex + 1}` : "Snack";
 })();
+
+useEffect(() => {
+  const pickedRecipeId = searchParams.get("pickedRecipe");
+  const pickedTemplate = searchParams.get("pickedTemplate") === "1";
+  const dayParam = searchParams.get("day");
+  const slotType = searchParams.get("slotType");
+  const slotKey = searchParams.get("slotKey");
+  const pickerKey = [pickedRecipeId, pickedTemplate ? "1" : "0", dayParam, slotType, slotKey].join(
+    ":"
+  );
+
+  if (!pickedRecipeId || !dayParam || !slotType || !slotKey) return;
+  if (!authChecked) return;
+  if (handledPickerKey === pickerKey) return;
+
+  const dayKey = ["today", "tomorrow", "day3"].includes(dayParam)
+    ? (dayParam as PlannerDayKey)
+    : null;
+
+  if (!dayKey) {
+    router.replace("/meals");
+    return;
+  }
+
+  const recipe = allRecipes.find(
+    (item) => item.id === pickedRecipeId && item.isTemplate === pickedTemplate
+  );
+
+  if (!recipe) {
+    router.replace("/meals");
+    return;
+  }
+
+  setHandledPickerKey(pickerKey);
+  setSelectedDay(dayKey);
+
+  void (async () => {
+    try {
+      if (slotType === "meal") {
+        await setMealSlotRecipe(slotKey as MealSlotKey, recipe, dayKey);
+      } else {
+        await setSnackRecipeForDay(slotKey, recipe, dayKey);
+      }
+      setPlannerErr(null);
+      setPlannerMsg(`Added ${recipe.name} to ${
+        searchParams.get("slotLabel") ?? "your planner"
+      }.`);
+      window.setTimeout(() => setPlannerMsg(null), 1800);
+    } catch (error) {
+      console.error("Failed to assign picked recipe:", error);
+      setPlannerErr(error instanceof Error ? error.message : "Could not assign recipe.");
+    } finally {
+      router.replace("/meals");
+    }
+  })();
+}, [
+  allRecipes,
+  authChecked,
+  handledPickerKey,
+  router,
+  searchParams,
+  setMealSlotRecipe,
+  setSnackRecipeForDay,
+]);
+
+if (redirecting || !authChecked) {
+  return (
+    <AppShell title="Meals">
+      <div className="text-sm text-gray-400">Loading...</div>
+    </AppShell>
+  );
+}
+
+if (redirecting || !authChecked) {
+  return (
+    <AppShell title="Meals">
+      <div className="text-sm text-gray-400">Loading...</div>
+    </AppShell>
+  );
+}
 
   return (
     <AppShell title="Meals">
@@ -1753,6 +2084,9 @@ const activeSlotLabel = (() => {
               const slot = mealSlots[slotKey];
               const recipe = slot.recipe;
               const logged = slot.logged;
+              const inventorySummary = recipe
+                ? summarizeRecipeInventory(recipe, inventoryByIngredientId, inventoryByName)
+                : null;
 
               return (
                 <div
@@ -1781,6 +2115,18 @@ const activeSlotLabel = (() => {
   <div className="mt-1 text-xs text-gray-400">
     {formatMacroLine(recipe, slot.servings)}
   </div>
+  {inventorySummary && inventorySummary.onHandCount > 0 ? (
+    <div className="mt-2 flex flex-wrap gap-2">
+      <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-200">
+        On hand: {inventorySummary.onHandCount}
+      </span>
+      {inventorySummary.lowStockCount > 0 ? (
+        <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-200">
+          Low stock: {inventorySummary.lowStockCount}
+        </span>
+      ) : null}
+    </div>
+  ) : null}
   <div className="mt-2 rounded-lg bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-300">
     {formatMacroPreview(recipe, slot.servings)}
   </div>
@@ -1844,6 +2190,16 @@ const activeSlotLabel = (() => {
 
               <div className="mt-4 space-y-3">
                 {snackSlots.map((snack, idx) => (
+                  (() => {
+                    const inventorySummary = snack.recipe
+                      ? summarizeRecipeInventory(
+                          snack.recipe,
+                          inventoryByIngredientId,
+                          inventoryByName
+                        )
+                      : null;
+
+                    return (
                   <div
                     key={snack.id}
                     className={`rounded-xl border p-3 ${
@@ -1869,6 +2225,18 @@ const activeSlotLabel = (() => {
                         <div className="mt-1 text-xs text-gray-400">
                           {formatMacroLine(snack.recipe, snack.servings)}
                         </div>
+                        {inventorySummary && inventorySummary.onHandCount > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-200">
+                              On hand: {inventorySummary.onHandCount}
+                            </span>
+                            {inventorySummary.lowStockCount > 0 ? (
+                              <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-200">
+                                Low stock: {inventorySummary.lowStockCount}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="mt-2 text-xs font-medium text-emerald-300">
                           {formatMacroPreview(snack.recipe, snack.servings)}
                         </div>
@@ -1918,6 +2286,8 @@ const activeSlotLabel = (() => {
                       </div>
                     )}
                   </div>
+                    );
+                  })()
                 ))}
               </div>
             </div>
@@ -1992,6 +2362,11 @@ const activeSlotLabel = (() => {
               {filteredRecipes.map((recipe) => {
                 const isCustom = !recipe.isTemplate;
                 const perServing = macrosForRecipe(recipe, 1);
+                const inventorySummary = summarizeRecipeInventory(
+                  recipe,
+                  inventoryByIngredientId,
+                  inventoryByName
+                );
 
                 return (
                   <div
@@ -2010,6 +2385,18 @@ const activeSlotLabel = (() => {
                           Per serving: {perServing.calories} kcal • P {perServing.protein} • C{" "}
                           {perServing.carbs} • F {perServing.fat}
                         </div>
+                        {inventorySummary.onHandCount > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-semibold text-emerald-200">
+                              On hand: {inventorySummary.onHandCount}
+                            </span>
+                            {inventorySummary.lowStockCount > 0 ? (
+                              <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-200">
+                                Low stock: {inventorySummary.lowStockCount}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="mt-1 text-xs text-gray-500">
                           Default servings: {recipe.defaultServings}
                         </div>
@@ -2468,7 +2855,7 @@ const activeSlotLabel = (() => {
                   No verified ingredients match &quot;{publicIngredientSearch.trim()}&quot;.
                 </div>
               ) : (
-                <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+                    <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                   {filteredPublicIngredients.map((ingredient) => (
                     <div
                       key={ingredient.id}
@@ -2580,6 +2967,14 @@ const activeSlotLabel = (() => {
                                   className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => promotePrivateIngredientForTesting(ingredient)}
+                                  disabled={ingredientManagerSaving}
+                                  className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Test Promote
                                 </button>
                                 <button
                                   type="button"

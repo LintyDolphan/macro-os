@@ -111,6 +111,19 @@ export async function listIngredients(userId: string) {
   return (data ?? []) as IngredientRecord[]
 }
 
+export async function listVerifiedIngredientsForAdmin(userId: string) {
+  const { data, error } = await supabase
+    .from("ingredients")
+    .select(INGREDIENT_SELECT)
+    .eq("visibility", "public")
+    .eq("verification_status", "verified")
+    .or(`user_id.is.null,user_id.eq.${userId}`)
+    .order("name", { ascending: true })
+
+  if (error) throw error
+  return (data ?? []) as IngredientRecord[]
+}
+
 export async function listVisibleIngredients(userId: string) {
   const [publicResult, privateResult] = await Promise.all([
     supabase
@@ -118,7 +131,7 @@ export async function listVisibleIngredients(userId: string) {
       .select(INGREDIENT_SELECT)
       .eq("visibility", "public")
       .eq("verification_status", "verified")
-      .is("user_id", null)
+      .or(`user_id.is.null,user_id.eq.${userId}`)
       .order("name", { ascending: true }),
     supabase
       .from("ingredients")
@@ -154,7 +167,7 @@ export async function getIngredientById(ingredientId: string, userId: string) {
     .from("ingredients")
     .select(INGREDIENT_SELECT)
     .eq("id", ingredientId)
-    .or(`user_id.eq.${userId},and(visibility.eq.public,verification_status.eq.verified,user_id.is.null)`)
+    .or(`user_id.eq.${userId},and(visibility.eq.public,verification_status.eq.verified)`)
     .single()
 
   if (error) throw error
@@ -222,6 +235,77 @@ export async function updateIngredient(
 
   if (error) throw error
   return data as IngredientRecord
+}
+
+export async function promoteIngredientToVerifiedForTesting(
+  ingredientId: string,
+  userId: string
+) {
+  const { data, error } = await supabase
+    .from("ingredients")
+    .update({
+      visibility: "public",
+      verification_status: "verified",
+      source_note: "Temporary test promotion",
+    })
+    .eq("id", ingredientId)
+    .eq("user_id", userId)
+    .select(INGREDIENT_SELECT)
+    .single()
+
+  if (error) throw error
+  return data as IngredientRecord
+}
+
+export async function updateVerifiedIngredientForAdmin(
+  ingredientId: string,
+  userId: string,
+  input: IngredientInsert
+) {
+  validateIngredientInput(input)
+
+  const { data, error } = await supabase
+    .from("ingredients")
+    .update({
+      name: input.name.trim(),
+      reference_amount_g: normalizeNumber(input.reference_amount_g),
+      reference_calories: normalizeNumber(input.reference_calories),
+      reference_protein_g: normalizeNumber(input.reference_protein_g),
+      reference_carbs_g: normalizeNumber(input.reference_carbs_g),
+      reference_fat_g: normalizeNumber(input.reference_fat_g),
+      cup_g: input.cup_g == null ? null : normalizeNumber(input.cup_g),
+      tbsp_g: input.tbsp_g == null ? null : normalizeNumber(input.tbsp_g),
+      tsp_g: input.tsp_g == null ? null : normalizeNumber(input.tsp_g),
+      piece_g: input.piece_g == null ? null : normalizeNumber(input.piece_g),
+      piece_label: input.piece_label?.trim() || null,
+      visibility: "public",
+      verification_status: "verified",
+      source_note: input.source_note?.trim() || null,
+    })
+    .eq("id", ingredientId)
+    .eq("visibility", "public")
+    .eq("verification_status", "verified")
+    .or(`user_id.is.null,user_id.eq.${userId}`)
+    .select(INGREDIENT_SELECT)
+    .single()
+
+  if (error) throw error
+  return data as IngredientRecord
+}
+
+export async function deleteVerifiedIngredientForAdmin(
+  ingredientId: string,
+  userId: string
+) {
+  const { error } = await supabase
+    .from("ingredients")
+    .delete()
+    .eq("id", ingredientId)
+    .eq("visibility", "public")
+    .eq("verification_status", "verified")
+    .or(`user_id.is.null,user_id.eq.${userId}`)
+
+  if (error) throw error
 }
 
 export async function deleteIngredient(ingredientId: string, userId: string) {

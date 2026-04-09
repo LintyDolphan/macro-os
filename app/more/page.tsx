@@ -5,6 +5,26 @@ import AppShell from "../components/AppShell";
 
 const moreLinks = [
   {
+    href: "/inventory",
+    title: "Inventory",
+    description: "Track pantry, fridge, freezer, and review suggestions.",
+  },
+  {
+    href: "/recipes/admin",
+    title: "Ingredient Admin",
+    description: "Temporary verified-library manager for bulk curation sessions.",
+  },
+  {
+    href: "/scan",
+    title: "Barcode Scanner",
+    description: "Test the shared camera barcode scanner before wiring it into features.",
+  },
+  {
+    href: "/workouts",
+    title: "Workout",
+    description: "Plan, log, and review your training sessions.",
+  },
+  {
     href: "/calculator",
     title: "Macro Calculator",
     description: "Set or recalculate your daily macro targets.",

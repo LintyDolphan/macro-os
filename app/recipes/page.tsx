@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 import { TEMPLATE_RECIPES, deleteRecipe, loadRecipes, type Recipe } from "../lib/recipes";
 import {
@@ -16,6 +17,10 @@ import {
   listVisibleIngredients,
   type IngredientRecord as IngredientLibraryItem,
 } from "../lib/supabase/ingredients-db";
+import {
+  listInventoryItems,
+  type InventoryItemRecord,
+} from "../lib/supabase/inventory-db";
 import { supabase } from "../lib/supabase/client";
 
 type PageTab = "book" | "libraries";
@@ -70,6 +75,10 @@ function perServing(recipe: Recipe) {
   };
 }
 
+function normalizeInventoryName(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function formatIngredientSummary(ingredient: IngredientLibraryItem) {
   const parts = [
     ingredient.cup_g ? `cup ${ingredient.cup_g}g` : null,
@@ -84,6 +93,8 @@ function formatIngredientSummary(ingredient: IngredientLibraryItem) {
 }
 
 export default function RecipesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [authChecked, setAuthChecked] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [tab, setTab] = useState<PageTab>("book");
@@ -94,10 +105,20 @@ export default function RecipesPage() {
   const [selectedFilters, setSelectedFilters] = useState<RecipeFilterValue[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [ingredients, setIngredients] = useState<IngredientLibraryItem[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemRecord[]>([]);
   const [ingredientSearch, setIngredientSearch] = useState("");
   const [privateSort, setPrivateSort] = useState<"az" | "newest" | "updated">("az");
   const [ingredientError, setIngredientError] = useState<string | null>(null);
   const [deletingRecipeId, setDeletingRecipeId] = useState<string | null>(null);
+  const pickerDay = searchParams.get("day");
+  const pickerSlotType = searchParams.get("slotType");
+  const pickerSlotKey = searchParams.get("slotKey");
+  const pickerSlotLabel = searchParams.get("slotLabel");
+  const plannerPickerMode =
+    searchParams.get("pickForPlanner") === "1" &&
+    !!pickerDay &&
+    !!pickerSlotType &&
+    !!pickerSlotKey;
 
   useEffect(() => {
     setFavoriteIds(readFavoriteRecipeIds());
@@ -126,14 +147,16 @@ export default function RecipesPage() {
           return;
         }
 
-        const [loadedRecipes, loadedIngredients] = await Promise.all([
+        const [loadedRecipes, loadedIngredients, loadedInventory] = await Promise.all([
           loadRecipes(),
           listVisibleIngredients(session.user.id),
+          listInventoryItems(),
         ]);
 
         if (!active) return;
         setRecipes(loadedRecipes);
         setIngredients(loadedIngredients);
+        setInventoryItems(loadedInventory);
         setRecipeError(null);
         setIngredientError(null);
       } catch (error) {
@@ -189,6 +212,32 @@ export default function RecipesPage() {
     () => ingredients.filter((ingredient) => ingredient.visibility === "private"),
     [ingredients]
   );
+
+  const inventoryByIngredientId = useMemo(() => {
+    const map = new Map<string, InventoryItemRecord[]>();
+
+    inventoryItems.forEach((item) => {
+      if (!item.linked_ingredient_id) return;
+      const existing = map.get(item.linked_ingredient_id) ?? [];
+      existing.push(item);
+      map.set(item.linked_ingredient_id, existing);
+    });
+
+    return map;
+  }, [inventoryItems]);
+
+  const inventoryByName = useMemo(() => {
+    const map = new Map<string, InventoryItemRecord[]>();
+
+    inventoryItems.forEach((item) => {
+      const key = normalizeInventoryName(item.name);
+      const existing = map.get(key) ?? [];
+      existing.push(item);
+      map.set(key, existing);
+    });
+
+    return map;
+  }, [inventoryItems]);
 
   const filteredPublicIngredients = useMemo(() => {
     const query = ingredientSearch.trim().toLowerCase();
@@ -250,6 +299,46 @@ export default function RecipesPage() {
     );
   }
 
+  function chooseRecipeForPlanner(recipe: Recipe) {
+    if (!plannerPickerMode || !pickerDay || !pickerSlotType || !pickerSlotKey) return;
+
+    const params = new URLSearchParams({
+      pickedRecipe: recipe.id,
+      pickedTemplate: recipe.isTemplate ? "1" : "0",
+      day: pickerDay,
+      slotType: pickerSlotType,
+      slotKey: pickerSlotKey,
+    });
+
+    if (pickerSlotLabel) {
+      params.set("slotLabel", pickerSlotLabel);
+    }
+
+    router.push(`/meals?${params.toString()}`);
+  }
+
+  function summarizeRecipeInventory(recipe: Recipe) {
+    const matchedItemIds = new Set<string>();
+    let lowStockCount = 0;
+
+    recipe.ingredients.forEach((ingredient) => {
+      const matches = ingredient.ingredientId
+        ? inventoryByIngredientId.get(ingredient.ingredientId) ?? []
+        : inventoryByName.get(normalizeInventoryName(ingredient.name)) ?? [];
+
+      matches.forEach((item) => {
+        if (matchedItemIds.has(item.id)) return;
+        matchedItemIds.add(item.id);
+        if (item.is_low_stock) lowStockCount += 1;
+      });
+    });
+
+    return {
+      onHandCount: matchedItemIds.size,
+      lowStockCount,
+    };
+  }
+
   if (redirecting || !authChecked) {
     return (
       <AppShell title="Recipes" subtitle="Your recipe book and ingredient libraries">
@@ -261,16 +350,38 @@ export default function RecipesPage() {
   return (
     <AppShell title="Recipes" subtitle="Your recipe book and ingredient libraries">
       <div className="space-y-5 pb-16">
-        <div className="grid grid-cols-2 gap-2">
-          <TabButton active={tab === "book"} onClick={() => setTab("book")}>
-            Recipe Book
-          </TabButton>
-          <TabButton active={tab === "libraries"} onClick={() => setTab("libraries")}>
-            Libraries
-          </TabButton>
-        </div>
+        {plannerPickerMode ? (
+          <div className="rounded-3xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-100">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-semibold text-white">
+                  Picking a recipe for {pickerSlotLabel ?? "your meal slot"}
+                </div>
+                <p className="mt-1 text-blue-100/80">
+                  Browse your real recipe book here, then send one straight back to Meals.
+                </p>
+              </div>
 
-        {tab === "book" && (
+              <Link
+                href="/meals"
+                className="rounded-2xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              >
+                Back
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <TabButton active={tab === "book"} onClick={() => setTab("book")}>
+              Recipe Book
+            </TabButton>
+            <TabButton active={tab === "libraries"} onClick={() => setTab("libraries")}>
+              Libraries
+            </TabButton>
+          </div>
+        )}
+
+        {(plannerPickerMode || tab === "book") && (
           <div className="space-y-4">
             {recipeError ? (
               <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
@@ -330,6 +441,7 @@ export default function RecipesPage() {
                 const favorite = favoriteIds.has(recipe.id);
                 const perServingMacros = perServing(recipe);
                 const dietaryTags = inferRecipeDietaryTags(recipe);
+                const inventorySummary = summarizeRecipeInventory(recipe);
                 const tagList = Object.entries(dietaryTags)
                   .filter(([, value]) => value)
                   .slice(0, 3)
@@ -417,7 +529,29 @@ export default function RecipesPage() {
                       </div>
                     ) : null}
 
+                    {inventorySummary.onHandCount > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-full bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-200">
+                          On hand: {inventorySummary.onHandCount}
+                        </span>
+                        {inventorySummary.lowStockCount > 0 ? (
+                          <span className="rounded-full bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-200">
+                            Low stock: {inventorySummary.lowStockCount}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className="mt-4 flex gap-2">
+                      {plannerPickerMode ? (
+                        <button
+                          type="button"
+                          onClick={() => chooseRecipeForPlanner(recipe)}
+                          className="flex-1 rounded-2xl bg-emerald-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-emerald-700"
+                        >
+                          Use In {pickerSlotLabel ?? "Meal"}
+                        </button>
+                      ) : null}
                       <Link
                         href={`/recipes/${recipe.id}`}
                         className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-blue-700"
@@ -448,7 +582,7 @@ export default function RecipesPage() {
           </div>
         )}
 
-        {tab === "libraries" && (
+        {!plannerPickerMode && tab === "libraries" && (
           <div className="space-y-4">
             {ingredientError ? (
               <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
@@ -491,8 +625,16 @@ export default function RecipesPage() {
                     <option value="updated">Sort: Recently Updated</option>
                   </select>
                 ) : (
-                  <div className="rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-gray-400">
-                    {publicIngredients.length} verified
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <div className="rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-gray-400">
+                      {publicIngredients.length} verified
+                    </div>
+                    <Link
+                      href="/recipes/admin"
+                      className="rounded-2xl bg-gray-900 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-gray-700"
+                    >
+                      Admin
+                    </Link>
                   </div>
                 )}
               </div>
@@ -584,13 +726,15 @@ export default function RecipesPage() {
         )}
       </div>
 
-      <Link
-        href="/recipes/create"
-        className="fixed bottom-24 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-[20px] border-2 border-blue-300/45 bg-blue-600 text-3xl font-light text-white shadow-[0_18px_40px_rgba(37,99,235,0.35)] transition hover:bg-blue-700 sm:right-[calc(50%-12rem)]"
-        aria-label="Create recipe"
-      >
-        +
-      </Link>
+      {!plannerPickerMode ? (
+        <Link
+          href="/recipes/create"
+          className="fixed bottom-32 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-[20px] border-2 border-blue-300/45 bg-blue-600 text-3xl font-light text-white shadow-[0_18px_40px_rgba(37,99,235,0.35)] transition hover:bg-blue-700 sm:right-[calc(50%-12rem)]"
+          aria-label="Create recipe"
+        >
+          +
+        </Link>
+      ) : null}
     </AppShell>
   );
 }

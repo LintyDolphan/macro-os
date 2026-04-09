@@ -25,7 +25,7 @@ export default function AppShell({
         backLabel={backLabel}
       />
 
-      <div className="mx-auto w-full max-w-md px-4 pb-24 pt-4">
+      <div className="mx-auto w-full max-w-md px-4 pb-36 pt-4">
         {children}
       </div>
 
