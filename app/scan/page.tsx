@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 import BarcodeScanner from "../components/BarcodeScanner";
@@ -25,7 +25,7 @@ function getReturnHref(returnTo: string, detectedValue: string | null, detectedF
   return nextQuery ? `${basePath}?${nextQuery}` : basePath;
 }
 
-export default function ScanPage() {
+function ScanPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [detectedValue, setDetectedValue] = useState<string | null>(null);
@@ -86,5 +86,19 @@ export default function ScanPage() {
         ) : null}
       </div>
     </AppShell>
+  );
+}
+
+export default function ScanPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Scan" subtitle="Scan a barcode, then review it before using it." backHref="/more" backLabel="Back">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <ScanPageContent />
+    </Suspense>
   );
 }

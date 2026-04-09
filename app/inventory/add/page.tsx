@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppShell from "../../components/AppShell";
 import {
@@ -48,7 +48,7 @@ function buildScannerHref() {
   return `/scan?${params.toString()}`;
 }
 
-export default function InventoryAddPage() {
+function InventoryAddPageContent() {
   const searchParams = useSearchParams();
   const scannedBarcode = searchParams.get("scannedBarcode")?.trim() ?? "";
   const scannedFormat = searchParams.get("scannedFormat")?.trim() ?? "";
@@ -355,5 +355,19 @@ export default function InventoryAddPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+export default function InventoryAddPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Add Item" subtitle="Manually add or adjust inventory" backHref="/inventory" backLabel="Inventory">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <InventoryAddPageContent />
+    </Suspense>
   );
 }
