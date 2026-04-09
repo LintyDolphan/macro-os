@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import AppShell from "../../components/AppShell";
 import {
   getCurrentUser,
@@ -31,7 +31,7 @@ function formatItemMeta(item: InventoryItemRecord) {
   return `${quantity} • ${location}${expiration}`
 }
 
-export default function InventoryItemsPage() {
+function InventoryItemsPageContent() {
   const searchParams = useSearchParams();
   const initialLocation = searchParams.get("location");
   const [authChecked, setAuthChecked] = useState(false);
@@ -194,5 +194,24 @@ export default function InventoryItemsPage() {
         </Link>
       </div>
     </AppShell>
+  );
+}
+
+export default function InventoryItemsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell
+          title="All Items"
+          subtitle="Browse your pantry, fridge, and freezer"
+          backHref="/inventory"
+          backLabel="Inventory"
+        >
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <InventoryItemsPageContent />
+    </Suspense>
   );
 }

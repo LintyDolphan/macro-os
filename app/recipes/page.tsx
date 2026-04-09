@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
@@ -92,7 +92,7 @@ function formatIngredientSummary(ingredient: IngredientLibraryItem) {
   return parts.join(" • ");
 }
 
-export default function RecipesPage() {
+function RecipesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [authChecked, setAuthChecked] = useState(false);
@@ -736,5 +736,19 @@ export default function RecipesPage() {
         </Link>
       ) : null}
     </AppShell>
+  );
+}
+
+export default function RecipesPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Recipes" subtitle="Your recipe book and ingredient libraries">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <RecipesPageContent />
+    </Suspense>
   );
 }

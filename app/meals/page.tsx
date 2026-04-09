@@ -11,7 +11,7 @@ import {
   getSnackSortOrder,
   mapPlannedMealsToPlannerState,
 } from "../lib/planner-mappers";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "../components/AppShell";
 import {
   TEMPLATE_RECIPES,
@@ -344,7 +344,7 @@ async function createInventorySuggestionsForLoggedRecipe(
   return suggestions.length;
 }
 
-export default function MealsPage() {
+function MealsPageContent() {
   const [tab, setTab] = useState<PlannerTab>("planner");
 
   const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
@@ -969,6 +969,20 @@ async function markMealSlotLogged(slot: MealSlotKey) {
   } catch (error) {
     console.error("Failed to create inventory suggestions for meal log:", error);
   }
+}
+
+export default function MealsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Meals" subtitle="Plan your macros">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <MealsPageContent />
+    </Suspense>
+  );
 }
 
 async function clearSnack(id: string) {
