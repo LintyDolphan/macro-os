@@ -1260,20 +1260,6 @@ function chooseMealForSlot(slot: MealSlotKey) {
   );
 }
 
-export default function MealsPage() {
-  return (
-    <Suspense
-      fallback={
-        <AppShell title="Meals" subtitle="Plan your macros">
-          <div className="text-sm text-gray-400">Loading...</div>
-        </AppShell>
-      }
-    >
-      <MealsPageContent />
-    </Suspense>
-  );
-}
-
 function chooseMealForSnack(id: string) {
     const snackIndex = snackSlots.findIndex((snack) => snack.id === id);
     const slotLabel = snackIndex >= 0 ? `Snack ${snackIndex + 1}` : "Snack";
@@ -3159,5 +3145,19 @@ if (redirecting || !authChecked) {
         )}
       </div>
     </AppShell>
+  );
+}
+
+export default function MealsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Meals" subtitle="Plan your macros">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <MealsPageContent />
+    </Suspense>
   );
 }
