@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../../components/AppShell";
 import {
   findBarcodeProductByBarcode,
@@ -49,6 +49,7 @@ function buildScannerHref() {
 }
 
 function InventoryAddPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const scannedBarcode = searchParams.get("scannedBarcode")?.trim() ?? "";
   const scannedFormat = searchParams.get("scannedFormat")?.trim() ?? "";
@@ -139,6 +140,7 @@ function InventoryAddPageContent() {
           return;
         }
 
+        setMatchedProduct(null);
         setName((current) => current.trim());
         setNotes((current) => {
           if (current.includes(scannedBarcode)) return current;
@@ -209,6 +211,7 @@ function InventoryAddPageContent() {
       setScanMessage(null);
       setLastAppliedBarcode(null);
       setMessage(`Added ${item.name} to ${formatLocationLabel(item.location)} inventory.`);
+      router.replace("/inventory/add");
       window.setTimeout(() => setMessage(null), 2200);
     } catch (error) {
       console.error("Failed to save inventory item:", error);

@@ -1,19 +1,16 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
 import BarcodeScanner from "../components/BarcodeScanner";
 
 type ScanContext = "general" | "inventory-add" | "inventory-use" | "snack" | "ingredient";
 
-function getReturnHref(returnTo: string, detectedValue: string | null, detectedFormat: string | null) {
+function getReturnHref(returnTo: string, detectedValue: string, detectedFormat?: string | null) {
   const [basePath, rawQuery = ""] = returnTo.split("?");
   const nextParams = new URLSearchParams(rawQuery);
-
-  if (detectedValue) {
-    nextParams.set("scannedBarcode", detectedValue);
-  }
+  nextParams.set("scannedBarcode", detectedValue);
 
   if (detectedFormat) {
     nextParams.set("scannedFormat", detectedFormat);
@@ -28,62 +25,33 @@ function getReturnHref(returnTo: string, detectedValue: string | null, detectedF
 function ScanPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [detectedValue, setDetectedValue] = useState<string | null>(null);
-  const [detectedFormat, setDetectedFormat] = useState<string | null>(null);
   const context = (searchParams.get("context") as ScanContext | null) ?? "general";
   const returnTo = searchParams.get("returnTo") ?? "/more";
-
-  const useResultHref = useMemo(
-    () => getReturnHref(returnTo, detectedValue, detectedFormat),
-    [detectedFormat, detectedValue, returnTo]
-  );
   const scannerKey = `${context}:${returnTo}`;
 
-  function onUseDetectedBarcode() {
-    if (!detectedValue) return;
-    router.push(useResultHref);
-  }
-
   return (
-    <AppShell title="Scan" subtitle="Scan a barcode, then review it before using it." backHref={returnTo} backLabel="Back">
+    <AppShell
+      title="Scan"
+      subtitle="Scan a barcode and Macro OS will return you to the page that opened it."
+      backHref={returnTo}
+      backLabel="Back"
+    >
       <div className="space-y-4">
         <BarcodeScanner
           key={scannerKey}
           context={context}
           onDetected={(result) => {
-            setDetectedValue(result.value);
-            setDetectedFormat(result.format ?? null);
+            const nextHref = getReturnHref(returnTo, result.value, result.format ?? null);
+            router.replace(nextHref);
           }}
         />
 
-        {detectedValue ? (
-          <section className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-4 shadow-sm">
-            <div className="text-sm font-semibold text-white">Use This Barcode</div>
-            <div className="mt-1 text-xs text-emerald-100/80">
-              {detectedValue}
-              {detectedFormat ? ` • ${detectedFormat}` : ""}
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={onUseDetectedBarcode}
-                className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
-              >
-                Use Result
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDetectedValue(null);
-                  setDetectedFormat(null);
-                }}
-                className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
-              >
-                Keep Testing
-              </button>
-            </div>
-          </section>
-        ) : null}
+        <section className="rounded-3xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+          <div className="text-sm font-semibold text-white">Automatic Return</div>
+          <div className="mt-1 text-sm text-gray-400">
+            Once a barcode is detected, the scanner closes and sends you back to keep working.
+          </div>
+        </section>
       </div>
     </AppShell>
   );
@@ -93,7 +61,12 @@ export default function ScanPage() {
   return (
     <Suspense
       fallback={
-        <AppShell title="Scan" subtitle="Scan a barcode, then review it before using it." backHref="/more" backLabel="Back">
+        <AppShell
+          title="Scan"
+          subtitle="Scan a barcode and Macro OS will return you to the page that opened it."
+          backHref="/more"
+          backLabel="Back"
+        >
           <div className="text-sm text-gray-400">Loading...</div>
         </AppShell>
       }
