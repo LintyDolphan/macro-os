@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../../components/AppShell";
 import {
+  createBarcodeProduct,
   findBarcodeProductByBarcode,
   type BarcodeProductRecord,
 } from "../../lib/supabase/barcode-products-db";
@@ -88,10 +89,14 @@ function InventoryAddPageContent() {
 
         if (!active) return;
         setUserId(user.id);
-      } catch (error) {
+      } catch (initError) {
         if (!active) return;
-        console.error("Failed to initialize inventory add page:", error);
-        setError(error instanceof Error ? error.message : "Inventory add page could not be loaded.");
+        console.error("Failed to initialize inventory add page:", initError);
+        setError(
+          initError instanceof Error
+            ? initError.message
+            : "Inventory add page could not be loaded."
+        );
       } finally {
         if (active) setAuthChecked(true);
       }
@@ -119,7 +124,6 @@ function InventoryAddPageContent() {
         const product = await findBarcodeProductByBarcode(scannedBarcode, userId ?? undefined);
 
         if (!active) return;
-
         setLastAppliedBarcode(scannedBarcode);
 
         if (product) {
@@ -144,15 +148,21 @@ function InventoryAddPageContent() {
         setName((current) => current.trim());
         setNotes((current) => {
           if (current.includes(scannedBarcode)) return current;
-          return current.trim() ? `${current.trim()}\nBarcode: ${scannedBarcode}` : `Barcode: ${scannedBarcode}`;
+          return current.trim()
+            ? `${current.trim()}\nBarcode: ${scannedBarcode}`
+            : `Barcode: ${scannedBarcode}`;
         });
         setScanMessage(
           `No saved barcode product was found for ${scannedBarcode}. You can still finish this item manually.`
         );
-      } catch (error) {
+      } catch (lookupError) {
         if (!active) return;
-        console.error("Failed to apply scanned barcode:", error);
-        setError(error instanceof Error ? error.message : "Scanned barcode could not be looked up.");
+        console.error("Failed to apply scanned barcode:", lookupError);
+        setError(
+          lookupError instanceof Error
+            ? lookupError.message
+            : "Scanned barcode could not be looked up."
+        );
       } finally {
         if (active) setLookupBusy(false);
       }
@@ -183,6 +193,25 @@ function InventoryAddPageContent() {
         .filter(Boolean)
         .join("\n");
 
+      let savedBarcodeProduct = matchedProduct;
+
+      if (scannedBarcode && !matchedProduct) {
+        savedBarcodeProduct = await createBarcodeProduct(userId, {
+          barcode: scannedBarcode,
+          name,
+          serving_amount: 1,
+          serving_unit: unit || "count",
+          package_amount:
+            Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : null,
+          package_unit:
+            Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? unit || "count" : null,
+          source_type: "barcode_scan",
+          notes: finalNotes || "Created from inventory barcode scan.",
+          visibility: "private",
+          verification_status: "custom",
+        });
+      }
+
       const item = await createInventoryItem(userId, {
         name,
         quantity: Number.isFinite(parsedQuantity) ? parsedQuantity : 0,
@@ -193,12 +222,16 @@ function InventoryAddPageContent() {
 
       await createInventoryEvent(userId, {
         inventory_item_id: item.id,
-        source_type: matchedProduct || scannedBarcode ? "barcode_scan" : "manual_add",
+        source_type: savedBarcodeProduct || scannedBarcode ? "barcode_scan" : "manual_add",
         event_type: "add",
         quantity_delta: Number(item.quantity),
         quantity_after: Number(item.quantity),
         unit: item.unit,
-        source_label: matchedProduct ? `Barcode add • ${matchedProduct.name}` : scannedBarcode ? "Barcode add" : "Manual inventory add",
+        source_label: savedBarcodeProduct
+          ? `Barcode add • ${savedBarcodeProduct.name}`
+          : scannedBarcode
+            ? "Barcode add"
+            : "Manual inventory add",
         notes: item.notes,
       });
 
@@ -210,12 +243,18 @@ function InventoryAddPageContent() {
       setMatchedProduct(null);
       setScanMessage(null);
       setLastAppliedBarcode(null);
-      setMessage(`Added ${item.name} to ${formatLocationLabel(item.location)} inventory.`);
+      setMessage(
+        savedBarcodeProduct && !matchedProduct
+          ? `Added ${item.name} to ${formatLocationLabel(item.location)} inventory and saved its barcode for next time.`
+          : `Added ${item.name} to ${formatLocationLabel(item.location)} inventory.`
+      );
       router.replace("/inventory/add");
       window.setTimeout(() => setMessage(null), 2200);
-    } catch (error) {
-      console.error("Failed to save inventory item:", error);
-      setError(error instanceof Error ? error.message : "Inventory item could not be saved.");
+    } catch (saveError) {
+      console.error("Failed to save inventory item:", saveError);
+      setError(
+        saveError instanceof Error ? saveError.message : "Inventory item could not be saved."
+      );
     } finally {
       setSaving(false);
     }
@@ -223,14 +262,24 @@ function InventoryAddPageContent() {
 
   if (redirecting || !authChecked) {
     return (
-      <AppShell title="Add Item" subtitle="Manually add or adjust inventory" backHref="/inventory" backLabel="Inventory">
+      <AppShell
+        title="Add Item"
+        subtitle="Manually add or adjust inventory"
+        backHref="/inventory"
+        backLabel="Inventory"
+      >
         <div className="text-sm text-gray-400">Loading...</div>
       </AppShell>
     );
   }
 
   return (
-    <AppShell title="Add Item" subtitle="Manually add or adjust inventory" backHref="/inventory" backLabel="Inventory">
+    <AppShell
+      title="Add Item"
+      subtitle="Manually add or adjust inventory"
+      backHref="/inventory"
+      backLabel="Inventory"
+    >
       <div className="space-y-4">
         {message ? (
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-200">
@@ -275,7 +324,9 @@ function InventoryAddPageContent() {
           {matchedProduct ? (
             <div className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
               <div className="text-sm font-semibold text-white">{matchedProduct.name}</div>
-              <div className="mt-1 text-xs text-emerald-100/80">{formatProductSummary(matchedProduct)}</div>
+              <div className="mt-1 text-xs text-emerald-100/80">
+                {formatProductSummary(matchedProduct)}
+              </div>
               <div className="mt-2 text-xs text-emerald-100/70">
                 Barcode: {matchedProduct.barcode}
                 {scannedFormat ? ` • ${scannedFormat}` : ""}
@@ -294,6 +345,7 @@ function InventoryAddPageContent() {
                 className="w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white"
               />
             </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1 block text-sm text-gray-300">Quantity</label>
@@ -303,6 +355,7 @@ function InventoryAddPageContent() {
                   className="w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white"
                 />
               </div>
+
               <div>
                 <label className="mb-1 block text-sm text-gray-300">Unit</label>
                 <input
@@ -313,6 +366,7 @@ function InventoryAddPageContent() {
                 />
               </div>
             </div>
+
             <div>
               <label className="mb-1 block text-sm text-gray-300">Location</label>
               <select
@@ -327,6 +381,7 @@ function InventoryAddPageContent() {
                 ))}
               </select>
             </div>
+
             <div>
               <label className="mb-1 block text-sm text-gray-300">Notes</label>
               <textarea
@@ -365,7 +420,12 @@ export default function InventoryAddPage() {
   return (
     <Suspense
       fallback={
-        <AppShell title="Add Item" subtitle="Manually add or adjust inventory" backHref="/inventory" backLabel="Inventory">
+        <AppShell
+          title="Add Item"
+          subtitle="Manually add or adjust inventory"
+          backHref="/inventory"
+          backLabel="Inventory"
+        >
           <div className="text-sm text-gray-400">Loading...</div>
         </AppShell>
       }
