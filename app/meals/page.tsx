@@ -971,20 +971,6 @@ async function markMealSlotLogged(slot: MealSlotKey) {
   }
 }
 
-export default function MealsPage() {
-  return (
-    <Suspense
-      fallback={
-        <AppShell title="Meals" subtitle="Plan your macros">
-          <div className="text-sm text-gray-400">Loading...</div>
-        </AppShell>
-      }
-    >
-      <MealsPageContent />
-    </Suspense>
-  );
-}
-
 async function clearSnack(id: string) {
   setPlannerByDay((prev) => ({
     ...prev,
@@ -1271,6 +1257,20 @@ function chooseMealForSlot(slot: MealSlotKey) {
     `/recipes?pickForPlanner=1&day=${selectedDay}&slotType=meal&slotKey=${slot}&slotLabel=${
       slot.charAt(0).toUpperCase() + slot.slice(1)
     }`
+  );
+}
+
+export default function MealsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Meals" subtitle="Plan your macros">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <MealsPageContent />
+    </Suspense>
   );
 }
 
