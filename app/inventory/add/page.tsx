@@ -115,7 +115,7 @@ export default function InventoryAddPage() {
         setMatchedProduct(null);
         setScanMessage(null);
 
-        const product = await findBarcodeProductByBarcode(scannedBarcode, userId);
+        const product = await findBarcodeProductByBarcode(scannedBarcode, userId ?? undefined);
 
         if (!active) return;
 
