@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../../components/AppShell";
 import {
@@ -67,6 +67,7 @@ function InventoryAddPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [lookupBusy, setLookupBusy] = useState(false);
+  const [autoAddingMatch, setAutoAddingMatch] = useState(false);
   const [matchedProduct, setMatchedProduct] = useState<BarcodeProductRecord | null>(null);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [lastAppliedBarcode, setLastAppliedBarcode] = useState<string | null>(null);
@@ -109,6 +110,56 @@ function InventoryAddPageContent() {
     };
   }, []);
 
+  const addMatchedProductToInventory = useCallback(async (product: BarcodeProductRecord) => {
+    if (!userId) return;
+
+    const itemQuantity =
+      product.package_amount != null && Number(product.package_amount) > 0
+        ? Number(product.package_amount)
+        : 1;
+    const itemUnit = product.package_unit || product.serving_unit || "count";
+    const itemLocation: InventoryLocation = "snacks";
+    const itemNotes = [
+      product.brand ? `Brand: ${product.brand}` : null,
+      `Barcode: ${product.barcode}`,
+      scannedFormat ? `Barcode format: ${scannedFormat}` : null,
+      product.notes?.trim() || null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const item = await createInventoryItem(userId, {
+      name: product.name,
+      quantity: itemQuantity,
+      unit: itemUnit,
+      location: itemLocation,
+      notes: itemNotes,
+    });
+
+    await createInventoryEvent(userId, {
+      inventory_item_id: item.id,
+      source_type: "barcode_scan",
+      event_type: "add",
+      quantity_delta: Number(item.quantity),
+      quantity_after: Number(item.quantity),
+      unit: item.unit,
+      source_label: `Barcode add • ${product.name}`,
+      notes: item.notes,
+    });
+
+    setName("");
+    setQuantity("1");
+    setUnit("count");
+    setLocation("pantry");
+    setNotes("");
+    setMatchedProduct(product);
+    setScanMessage(null);
+    setLastAppliedBarcode(product.barcode);
+    setMessage(`Added ${product.name} to ${formatLocationLabel(item.location)} inventory from barcode scan.`);
+    router.replace("/inventory/add");
+    window.setTimeout(() => setMessage(null), 2200);
+  }, [router, scannedFormat, userId]);
+
   useEffect(() => {
     if (!userId || !scannedBarcode || scannedBarcode === lastAppliedBarcode) return;
 
@@ -127,20 +178,8 @@ function InventoryAddPageContent() {
         setLastAppliedBarcode(scannedBarcode);
 
         if (product) {
-          setMatchedProduct(product);
-          setName(product.name);
-          setUnit(product.package_unit || product.serving_unit || "count");
-          setQuantity(product.package_amount != null ? String(Number(product.package_amount)) : "1");
-          setLocation("snacks");
-
-          const noteParts = [
-            product.brand ? `Brand: ${product.brand}` : null,
-            `Barcode: ${product.barcode}`,
-            product.notes?.trim() || null,
-          ].filter(Boolean);
-
-          setNotes(noteParts.join("\n"));
-          setScanMessage(`Matched ${product.name} from your barcode product library.`);
+          setAutoAddingMatch(true);
+          await addMatchedProductToInventory(product);
           return;
         }
 
@@ -164,7 +203,10 @@ function InventoryAddPageContent() {
             : "Scanned barcode could not be looked up."
         );
       } finally {
-        if (active) setLookupBusy(false);
+        if (active) {
+          setLookupBusy(false);
+          setAutoAddingMatch(false);
+        }
       }
     }
 
@@ -173,7 +215,7 @@ function InventoryAddPageContent() {
     return () => {
       active = false;
     };
-  }, [lastAppliedBarcode, scannedBarcode, userId]);
+  }, [addMatchedProductToInventory, lastAppliedBarcode, scannedBarcode, userId]);
 
   async function onSaveItem() {
     if (!userId) return;
@@ -311,7 +353,7 @@ function InventoryAddPageContent() {
 
           {lookupBusy ? (
             <div className="mt-4 rounded-2xl border border-gray-700 bg-gray-900/80 p-4 text-sm text-gray-300">
-              Looking up barcode...
+              {autoAddingMatch ? "Match found. Adding it to inventory..." : "Looking up barcode..."}
             </div>
           ) : null}
 
@@ -398,7 +440,7 @@ function InventoryAddPageContent() {
           <button
             type="button"
             onClick={onSaveItem}
-            disabled={saving}
+            disabled={saving || autoAddingMatch}
             className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Item"}
