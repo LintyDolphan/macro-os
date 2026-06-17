@@ -64,6 +64,14 @@ export default function SettingsPage() {
     <AppShell title="Settings" subtitle="Preferences and account options">
       <div className="mx-auto max-w-md space-y-4">
         <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-white">App Structure</h2>
+          <p className="mt-2 text-sm text-gray-400">
+            Macro OS is now organized around Dashboard, Macros, Workout, Grocery, and Settings.
+            Advanced tools live here so the main app stays focused.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-white">Account</h2>
 
           <div className="mt-3 rounded-xl bg-gray-900 p-4">
@@ -101,6 +109,34 @@ export default function SettingsPage() {
           >
             Manage Household
           </Link>
+        </div>
+
+        <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-white">Advanced Tools</h2>
+          <p className="mt-2 text-sm text-gray-400">
+            These pages still exist, but they are no longer part of the main user flow.
+          </p>
+
+          <div className="mt-3 grid gap-2">
+            <Link
+              href="/inventory"
+              className="rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
+            >
+              Inventory Tools
+            </Link>
+            <Link
+              href="/recipes/admin"
+              className="rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
+            >
+              Ingredient Admin
+            </Link>
+            <Link
+              href="/scan"
+              className="rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
+            >
+              Scanner Test Page
+            </Link>
+          </div>
         </div>
       </div>
     </AppShell>

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "../components/AppShell";
+import BackButton from "../components/BackButton";
 import { TEMPLATE_RECIPES, deleteRecipe, loadRecipes, type Recipe } from "../lib/recipes";
 import {
   filterLabel,
@@ -114,6 +115,8 @@ function RecipesPageContent() {
   const pickerSlotType = searchParams.get("slotType");
   const pickerSlotKey = searchParams.get("slotKey");
   const pickerSlotLabel = searchParams.get("slotLabel");
+  const pickerReturnHref = searchParams.get("pickerReturn") === "macros" ? "/macros" : "/meals";
+  const pickerReturnLabel = pickerReturnHref === "/macros" ? "Macros" : "Meals";
   const plannerPickerMode =
     searchParams.get("pickForPlanner") === "1" &&
     !!pickerDay &&
@@ -314,7 +317,25 @@ function RecipesPageContent() {
       params.set("slotLabel", pickerSlotLabel);
     }
 
-    router.push(`/meals?${params.toString()}`);
+    router.push(`${pickerReturnHref}?${params.toString()}`);
+  }
+
+  function recipeDetailHref(recipeId: string) {
+    if (!plannerPickerMode) return `/recipes/${recipeId}`;
+
+    const params = new URLSearchParams({
+      pickForPlanner: "1",
+      pickerReturn: pickerReturnHref === "/macros" ? "macros" : "meals",
+      day: pickerDay!,
+      slotType: pickerSlotType!,
+      slotKey: pickerSlotKey!,
+    });
+
+    if (pickerSlotLabel) {
+      params.set("slotLabel", pickerSlotLabel);
+    }
+
+    return `/recipes/${recipeId}?${params.toString()}`;
   }
 
   function summarizeRecipeInventory(recipe: Recipe) {
@@ -341,14 +362,28 @@ function RecipesPageContent() {
 
   if (redirecting || !authChecked) {
     return (
-      <AppShell title="Recipes" subtitle="Your recipe book and ingredient libraries">
+      <AppShell
+        title="Recipe Book"
+        subtitle="Recipes and saved meal ideas"
+        backHref="/macros"
+        backLabel="Macros"
+      >
         <div className="text-sm text-gray-400">Loading...</div>
       </AppShell>
     );
   }
 
   return (
-    <AppShell title="Recipes" subtitle="Your recipe book and ingredient libraries">
+    <AppShell
+      title={plannerPickerMode ? "Choose Recipe" : "Recipe Book"}
+      subtitle={
+        plannerPickerMode
+          ? `Select a recipe for ${pickerSlotLabel ?? "your meal"}`
+          : "Find, create, and plan your saved meals"
+      }
+      backHref={plannerPickerMode ? pickerReturnHref : "/macros"}
+      backLabel={plannerPickerMode ? pickerReturnLabel : "Macros"}
+    >
       <div className="space-y-5 pb-16">
         {plannerPickerMode ? (
           <div className="rounded-3xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-100">
@@ -358,16 +393,16 @@ function RecipesPageContent() {
                   Picking a recipe for {pickerSlotLabel ?? "your meal slot"}
                 </div>
                 <p className="mt-1 text-blue-100/80">
-                  Browse your real recipe book here, then send one straight back to Meals.
+                  Browse your real recipe book here, then send one straight back to {pickerReturnLabel}.
                 </p>
               </div>
 
-              <Link
-                href="/meals"
+              <BackButton
+                fallbackHref={pickerReturnHref}
                 className="rounded-2xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
               >
                 Back
-              </Link>
+              </BackButton>
             </div>
           </div>
         ) : (
@@ -429,11 +464,20 @@ function RecipesPageContent() {
                 </div>
               </div>
 
-              <p className="mt-3 text-sm text-gray-400">
-                You can stack multiple nutrition and dietary filters here. These are still inferred
-                from recipe ingredients and per-serving macros, so they work best as quick discovery
-                helpers.
-              </p>
+              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-gray-400">
+                <span>
+                  {filteredRecipes.length} recipe{filteredRecipes.length === 1 ? "" : "s"} found
+                </span>
+                {selectedFilters.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFilters([])}
+                    className="font-semibold text-blue-300 hover:text-blue-200"
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -553,10 +597,10 @@ function RecipesPageContent() {
                         </button>
                       ) : null}
                       <Link
-                        href={`/recipes/${recipe.id}`}
+                        href={recipeDetailHref(recipe.id)}
                         className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-blue-700"
                       >
-                        View Steps
+                        Recipe Details
                       </Link>
                       {!recipe.isTemplate ? (
                         <button
@@ -743,7 +787,12 @@ export default function RecipesPage() {
   return (
     <Suspense
       fallback={
-        <AppShell title="Recipes" subtitle="Your recipe book and ingredient libraries">
+        <AppShell
+          title="Recipe Book"
+          subtitle="Recipes and saved meal ideas"
+          backHref="/macros"
+          backLabel="Macros"
+        >
           <div className="text-sm text-gray-400">Loading...</div>
         </AppShell>
       }

@@ -1,4 +1,4 @@
-const CACHE = "macro-os-v1";
+const CACHE = "macro-os-v2";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE));
@@ -6,35 +6,42 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    Promise.all([
+      caches
+        .keys()
+        .then((cacheNames) =>
+          Promise.all(
+            cacheNames
+              .filter((cacheName) => cacheName !== CACHE)
+              .map((cacheName) => caches.delete(cacheName))
+          )
+        ),
+      self.clients.claim(),
+    ])
+  );
 });
 
-// Network-first for navigations, cache-first for static assets
+// Keep app code and styles on the network so a deployment can never combine
+// current markup with stale Tailwind CSS or JavaScript.
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Only handle same-origin
   if (url.origin !== location.origin) return;
 
-  // HTML navigations: try network, fallback cache
-  if (req.mode === "navigate") {
-    event.respondWith(
-      fetch(req).catch(() => caches.match(req))
-    );
+  if (req.mode === "navigate" || url.pathname.startsWith("/_next/")) {
+    event.respondWith(fetch(req));
     return;
   }
 
-  // Static assets: cache-first
+  // Cache stable image assets for the installed app.
   if (
-    url.pathname.startsWith("/_next/") ||
     url.pathname.startsWith("/icons") ||
     url.pathname.endsWith(".png") ||
     url.pathname.endsWith(".jpg") ||
     url.pathname.endsWith(".jpeg") ||
-    url.pathname.endsWith(".svg") ||
-    url.pathname.endsWith(".css") ||
-    url.pathname.endsWith(".js")
+    url.pathname.endsWith(".svg")
   ) {
     event.respondWith(
       caches.match(req).then((cached) => {

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import BackButton from "./BackButton";
 
 type TopBarProps = {
   title: string;
@@ -32,9 +32,12 @@ export default function TopBar({
   return (
     <header className="sticky top-0 z-20 border-b border-gray-800 bg-gray-900/95 backdrop-blur">
       {backHref ? (
-        <Link href={backHref} className="block transition hover:bg-gray-800/60">
+        <BackButton
+          fallbackHref={backHref}
+          className="block w-full text-left transition hover:bg-gray-800/60"
+        >
           {content}
-        </Link>
+        </BackButton>
       ) : (
         content
       )}

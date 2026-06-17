@@ -2,6 +2,7 @@
 
 
 import {
+  canLogPlannerDay,
   getPlannedMeals,
   upsertPlannedMeal,
   deletePlannedMealBySlot,
@@ -786,6 +787,12 @@ const setMealSlotRecipe = useCallback(async (
   recipe: Recipe,
   dayKey = selectedDay
 ) => {
+  if (plannerByDay[dayKey].mealSlots[slot].logged) {
+    setPlannerMsg(null);
+    setPlannerErr("Clear the logged meal before choosing a replacement.");
+    return;
+  }
+
   const servings =
     plannerByDay[dayKey].mealSlots[slot].servings ||
     recipe.defaultServings ||
@@ -910,6 +917,11 @@ async function markMealSlotLogged(slot: MealSlotKey) {
   const day = selectedDay;
   const meal = plannerByDay[day].mealSlots[slot];
   if (!meal.recipe || meal.logged) return;
+  if (!canLogPlannerDay(day)) {
+    setPlannerMsg(null);
+    setPlannerErr("Future meals can be planned, but they cannot be logged yet.");
+    return;
+  }
 
   const macros = macrosForRecipe(meal.recipe, meal.servings);
   const name =
@@ -995,6 +1007,11 @@ async function markSnackLogged(id: string) {
   const day = selectedDay;
   const snack = plannerByDay[day].snackSlots.find((s) => s.id === id);
   if (!snack?.recipe || snack.logged) return;
+  if (!canLogPlannerDay(day)) {
+    setPlannerMsg(null);
+    setPlannerErr("Future meals can be planned, but they cannot be logged yet.");
+    return;
+  }
 
   const macros = macrosForRecipe(snack.recipe, snack.servings);
   const name =
@@ -1058,6 +1075,11 @@ async function updateSnackServings(id: string, delta: number) {
   );
 
   if (!currentSnack) return;
+  if (currentSnack.logged) {
+    setPlannerMsg(null);
+    setPlannerErr("Clear the logged snack before changing its servings.");
+    return;
+  }
 
   const nextServings = Math.max(1, currentSnack.servings + delta);
 
@@ -1148,6 +1170,12 @@ const setSnackRecipeForDay = useCallback(async (
   dayKey = selectedDay
 ) => {
   const currentSnack = plannerByDay[dayKey].snackSlots.find((snack) => snack.id === id);
+  if (currentSnack?.logged) {
+    setPlannerMsg(null);
+    setPlannerErr("Clear the logged snack before choosing a replacement.");
+    return;
+  }
+
   const servings = currentSnack?.servings || recipe.defaultServings || 1;
   const sortOrder = getSnackSortOrder(plannerByDay[dayKey].snackSlots, id);
 
@@ -1187,6 +1215,12 @@ const setSnackRecipeForDay = useCallback(async (
 }, [plannerByDay, selectedDay]);
 async function updateMealSlotServings(slot: MealSlotKey, delta: number) {
   const currentSlot = plannerByDay[selectedDay].mealSlots[slot];
+  if (currentSlot.logged) {
+    setPlannerMsg(null);
+    setPlannerErr("Clear the logged meal before changing its servings.");
+    return;
+  }
+
   const nextServings = Math.max(1, currentSlot.servings + delta);
 
   setPlannerByDay((prev) => ({
@@ -1253,6 +1287,12 @@ setPlannerMsg(
 }
 
 function chooseMealForSlot(slot: MealSlotKey) {
+  if (plannerByDay[selectedDay].mealSlots[slot].logged) {
+    setPlannerMsg(null);
+    setPlannerErr("Clear the logged meal before choosing a replacement.");
+    return;
+  }
+
   router.push(
     `/recipes?pickForPlanner=1&day=${selectedDay}&slotType=meal&slotKey=${slot}&slotLabel=${
       slot.charAt(0).toUpperCase() + slot.slice(1)
@@ -1262,6 +1302,12 @@ function chooseMealForSlot(slot: MealSlotKey) {
 
 function chooseMealForSnack(id: string) {
     const snackIndex = snackSlots.findIndex((snack) => snack.id === id);
+    if (snackIndex >= 0 && snackSlots[snackIndex].logged) {
+      setPlannerMsg(null);
+      setPlannerErr("Clear the logged snack before choosing a replacement.");
+      return;
+    }
+
     const slotLabel = snackIndex >= 0 ? `Snack ${snackIndex + 1}` : "Snack";
 
     router.push(
@@ -1874,7 +1920,7 @@ useEffect(() => {
 
 if (redirecting || !authChecked) {
   return (
-    <AppShell title="Meals">
+    <AppShell title="Macros" subtitle="Plan meals and log intake">
       <div className="text-sm text-gray-400">Loading...</div>
     </AppShell>
   );
@@ -1882,14 +1928,14 @@ if (redirecting || !authChecked) {
 
 if (redirecting || !authChecked) {
   return (
-    <AppShell title="Meals">
+    <AppShell title="Macros" subtitle="Plan meals and log intake">
       <div className="text-sm text-gray-400">Loading...</div>
     </AppShell>
   );
 }
 
   return (
-    <AppShell title="Meals">
+    <AppShell title="Macros" subtitle="Plan meals and log intake">
       <div className="space-y-4">
         {viewerRecipe && (
           <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
@@ -2137,31 +2183,34 @@ if (redirecting || !authChecked) {
   <div className="flex items-center gap-2">
     <MealActionButton
       onClick={() => updateMealSlotServings(slotKey, -1)}
-      disabled={slot.servings <= 1}
+      disabled={slot.logged || slot.servings <= 1}
     >
       –
     </MealActionButton>
     <div className="min-w-[48px] text-center text-sm font-semibold text-white">
       {slot.servings}x
     </div>
-    <MealActionButton onClick={() => updateMealSlotServings(slotKey, 1)}>
+    <MealActionButton onClick={() => updateMealSlotServings(slotKey, 1)} disabled={slot.logged}>
       +
     </MealActionButton>
   </div>
 </div>
 
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <MealActionButton onClick={() => chooseMealForSlot(slotKey)}>
-                          Choose Meal
+                        <MealActionButton
+                          onClick={() => chooseMealForSlot(slotKey)}
+                          disabled={slot.logged}
+                        >
+                          {slot.logged ? "Locked" : "Choose Meal"}
                         </MealActionButton>
                         <MealActionButton onClick={() => openViewer(recipe, slot.servings)}>
                           View Steps
                         </MealActionButton>
                         <MealActionButton
                           onClick={() => markMealSlotLogged(slotKey)}
-                          disabled={slot.logged}
+                          disabled={slot.logged || !canLogPlannerDay(selectedDay)}
                         >
-                          Log Meal
+                          {canLogPlannerDay(selectedDay) ? "Log Meal" : "Available Today"}
                         </MealActionButton>
                         <MealActionButton onClick={() => clearMealSlot(slotKey)}>
                           Clear
@@ -2246,21 +2295,24 @@ if (redirecting || !authChecked) {
   <div className="flex items-center gap-2">
     <MealActionButton
       onClick={() => updateSnackServings(snack.id, -1)}
-      disabled={snack.servings <= 1}
+      disabled={snack.logged || snack.servings <= 1}
     >
       –
     </MealActionButton>
     <div className="min-w-[48px] text-center text-sm font-semibold text-white">
       {snack.servings}x
     </div>
-    <MealActionButton onClick={() => updateSnackServings(snack.id, 1)}>
+    <MealActionButton onClick={() => updateSnackServings(snack.id, 1)} disabled={snack.logged}>
       +
     </MealActionButton>
   </div>
 </div>
                         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                          <MealActionButton onClick={() => chooseMealForSnack(snack.id)}>
-                            Choose Snack
+                          <MealActionButton
+                            onClick={() => chooseMealForSnack(snack.id)}
+                            disabled={snack.logged}
+                          >
+                            {snack.logged ? "Locked" : "Choose Snack"}
                           </MealActionButton>
                           <MealActionButton
                             onClick={() => openViewer(snack.recipe!, snack.servings)}
@@ -2269,9 +2321,9 @@ if (redirecting || !authChecked) {
                           </MealActionButton>
                           <MealActionButton
                             onClick={() => markSnackLogged(snack.id)}
-                            disabled={snack.logged}
+                            disabled={snack.logged || !canLogPlannerDay(selectedDay)}
                           >
-                            Log Snack
+                            {canLogPlannerDay(selectedDay) ? "Log Snack" : "Available Today"}
                           </MealActionButton>
                           <MealActionButton onClick={() => clearSnack(snack.id)}>
                             Clear
@@ -3152,7 +3204,7 @@ export default function MealsPage() {
   return (
     <Suspense
       fallback={
-        <AppShell title="Meals" subtitle="Plan your macros">
+        <AppShell title="Macros" subtitle="Plan meals and log intake">
           <div className="text-sm text-gray-400">Loading...</div>
         </AppShell>
       }

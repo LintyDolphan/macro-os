@@ -9,6 +9,7 @@ export type MacroLogEntryRow = {
   protein: number;
   carbs: number;
   fat: number;
+  planned_meal_id?: string | null;
   created_at: string;
 };
 
@@ -37,6 +38,7 @@ export type CreateMacroLogEntryInput = {
   protein: number;
   carbs: number;
   fat: number;
+  planned_meal_id?: string | null;
 };
 
 export type SaveMacroTargetInput = {
@@ -88,10 +90,10 @@ export async function createMacroLogEntry(input: CreateMacroLogEntryInput) {
       user_id: user.id,
       date_key: input.date_key,
       name: input.name,
-      calories: input.calories,
-      protein: input.protein,
-      carbs: input.carbs,
-      fat: input.fat,
+      calories: Math.round(input.calories),
+      protein: Math.round(input.protein),
+      carbs: Math.round(input.carbs),
+      fat: Math.round(input.fat),
     })
     .select()
     .single();
@@ -108,6 +110,18 @@ export async function deleteMacroLogEntry(entryId: string) {
     .from("macro_log_entries")
     .delete()
     .eq("id", entryId)
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+}
+
+export async function deleteMacroLogEntryForPlannedMeal(plannedMealId: string) {
+  const user = await getCurrentUser();
+
+  const { error } = await supabase
+    .from("macro_log_entries")
+    .delete()
+    .eq("planned_meal_id", plannedMealId)
     .eq("user_id", user.id);
 
   if (error) throw error;

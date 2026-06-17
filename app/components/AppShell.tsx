@@ -1,5 +1,6 @@
 import TopBar from "./TopBar";
 import BottomNav from "./BottomNav";
+import ScrollPositionRestorer from "./ScrollPositionRestorer";
 
 type AppShellProps = {
   title: string;
@@ -18,6 +19,7 @@ export default function AppShell({
 }: AppShellProps) {
   return (
     <main className="min-h-screen bg-gray-900 text-white">
+      <ScrollPositionRestorer />
       <TopBar
         title={title}
         subtitle={subtitle}

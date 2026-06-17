@@ -29,6 +29,9 @@ export type UpsertPlannedMealInput = {
   logged?: boolean;
 };
 
+export function canLogPlannerDay(dayKey: PlannerDayKey) {
+  return dayKey === "today";
+}
 
 export async function setPlannedMealLogged(
     
@@ -38,6 +41,13 @@ export async function setPlannedMealLogged(
   logged: boolean
 ) {
   try {
+    if (logged && !canLogPlannerDay(day_key)) {
+      return {
+        data: null,
+        error: "Future meals cannot be logged.",
+      };
+    }
+
     console.log("SET LOGGED", { day_key, slot_type, slot_key, logged });
     const user = await getCurrentUser();
 
@@ -141,7 +151,7 @@ export async function upsertPlannedMeal(input: UpsertPlannedMealInput) {
       slot_key: input.slot_key,
       sort_order: input.sort_order ?? 0,
       servings: input.servings ?? 1,
-      logged: input.logged ?? false,
+      logged: canLogPlannerDay(input.day_key) ? input.logged ?? false : false,
     };
 
     const { data: existing, error: existingError } = await supabase

@@ -4,6 +4,7 @@ import { supabase } from "./client"
 
 export type IngredientVisibility = "public" | "private"
 export type IngredientVerificationStatus = "verified" | "custom" | "pending"
+export type IngredientType = "raw" | "packaged" | "custom"
 
 export type IngredientInsert = {
   name: string
@@ -19,6 +20,7 @@ export type IngredientInsert = {
   piece_label?: string | null
   visibility?: IngredientVisibility
   verification_status?: IngredientVerificationStatus
+  ingredient_type?: IngredientType
   source_note?: string | null
 }
 
@@ -42,6 +44,7 @@ export type IngredientRecord = {
   piece_label: string | null
   visibility: IngredientVisibility
   verification_status: IngredientVerificationStatus
+  ingredient_type: IngredientType
   source_note: string | null
   created_at: string
   updated_at: string
@@ -67,6 +70,7 @@ const INGREDIENT_SELECT = `
   piece_label,
   visibility,
   verification_status,
+  ingredient_type,
   source_note,
   created_at,
   updated_at
@@ -194,6 +198,7 @@ export async function createIngredient(userId: string, input: IngredientInsert) 
       piece_label: input.piece_label?.trim() || null,
       visibility: input.visibility ?? "private",
       verification_status: input.verification_status ?? "custom",
+      ingredient_type: input.ingredient_type ?? "raw",
       source_note: input.source_note?.trim() || null,
     })
     .select(INGREDIENT_SELECT)
@@ -201,6 +206,31 @@ export async function createIngredient(userId: string, input: IngredientInsert) 
 
   if (error) throw error
   return data as IngredientRecord
+}
+
+export async function createPackagedIngredientPlaceholder(
+  userId: string,
+  input: {
+    name: string
+    visibility?: IngredientVisibility
+    verification_status?: IngredientVerificationStatus
+    source_note?: string | null
+  }
+) {
+  return createIngredient(userId, {
+    name: input.name,
+    reference_amount_g: 100,
+    reference_calories: 0,
+    reference_protein_g: 0,
+    reference_carbs_g: 0,
+    reference_fat_g: 0,
+    visibility: input.visibility ?? "private",
+    verification_status: input.verification_status ?? "custom",
+    ingredient_type: "packaged",
+    source_note:
+      input.source_note?.trim() ||
+      "Canonical packaged item placeholder. Nutrition currently lives on the linked barcode record.",
+  })
 }
 
 export async function updateIngredient(
@@ -226,6 +256,7 @@ export async function updateIngredient(
       piece_label: input.piece_label?.trim() || null,
       visibility: input.visibility ?? "private",
       verification_status: input.verification_status ?? "custom",
+      ingredient_type: input.ingredient_type ?? "raw",
       source_note: input.source_note?.trim() || null,
     })
     .eq("id", ingredientId)
@@ -280,6 +311,7 @@ export async function updateVerifiedIngredientForAdmin(
       piece_label: input.piece_label?.trim() || null,
       visibility: "public",
       verification_status: "verified",
+      ingredient_type: input.ingredient_type ?? "raw",
       source_note: input.source_note?.trim() || null,
     })
     .eq("id", ingredientId)

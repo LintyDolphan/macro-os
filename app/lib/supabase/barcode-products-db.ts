@@ -1,4 +1,6 @@
 import { supabase } from "./client"
+import { upsertIngredientBarcode, normalizeBarcodeValue } from "./ingredient-barcodes-db"
+import { createPackagedIngredientPlaceholder } from "./ingredients-db"
 
 export type BarcodeProductSourceType =
   | "manual"
@@ -111,10 +113,6 @@ function normalizePositiveNumber(value: unknown, field: string) {
   return parsed
 }
 
-function normalizeBarcode(value: string) {
-  return value.replace(/\s+/g, "").trim()
-}
-
 function validateBarcodeProductInput(input: BarcodeProductInsert) {
   normalizeRequiredString(input.name, "Product name")
   normalizeRequiredString(input.barcode, "Barcode")
@@ -190,7 +188,7 @@ export async function getBarcodeProductById(productId: string) {
 }
 
 export async function findBarcodeProductByBarcode(barcode: string, userId?: string) {
-  const normalized = normalizeBarcode(barcode)
+  const normalized = normalizeBarcodeValue(barcode)
   if (!normalized) return null
 
   let query = supabase
@@ -215,16 +213,27 @@ export async function findBarcodeProductByBarcode(barcode: string, userId?: stri
 export async function createBarcodeProduct(userId: string, input: BarcodeProductInsert) {
   validateBarcodeProductInput(input)
 
-  const barcode = normalizeRequiredString(normalizeBarcode(input.barcode), "Barcode")
+  const barcode = normalizeRequiredString(normalizeBarcodeValue(input.barcode), "Barcode")
   const name = normalizeRequiredString(input.name, "Product name")
   const servingAmount = normalizePositiveNumber(input.serving_amount ?? 1, "Serving amount")
   const servingUnit = normalizeRequiredString(input.serving_unit ?? "serving", "Serving unit")
+  const linkedIngredientId =
+    input.linked_ingredient_id ??
+    (
+      await createPackagedIngredientPlaceholder(userId, {
+        name,
+        visibility: input.visibility ?? "private",
+        verification_status: input.verification_status ?? "custom",
+        source_note:
+          "Created automatically from a barcode product. Nutrition remains on the barcode record until packaged-food nutrition is fully unified.",
+      })
+    ).id
 
   const { data, error } = await supabase
     .from("barcode_products")
     .insert({
       user_id: userId,
-      linked_ingredient_id: input.linked_ingredient_id ?? null,
+      linked_ingredient_id: linkedIngredientId,
       barcode,
       normalized_barcode: barcode,
       name,
@@ -251,6 +260,14 @@ export async function createBarcodeProduct(userId: string, input: BarcodeProduct
     .single()
 
   if (error) throw error
+  await upsertIngredientBarcode(userId, {
+    ingredient_id: linkedIngredientId,
+    barcode,
+    source_type: input.source_type ?? "manual",
+    notes: normalizeOptionalString(input.notes),
+    visibility: input.visibility ?? "private",
+    verification_status: input.verification_status ?? "custom",
+  })
   return data as BarcodeProductRecord
 }
 
@@ -263,7 +280,7 @@ export async function updateBarcodeProduct(
 
   const barcode =
     input.barcode != null
-      ? normalizeRequiredString(normalizeBarcode(input.barcode), "Barcode")
+      ? normalizeRequiredString(normalizeBarcodeValue(input.barcode), "Barcode")
       : current.barcode
   const name =
     input.name != null ? normalizeRequiredString(input.name, "Product name") : current.name
@@ -290,13 +307,24 @@ export async function updateBarcodeProduct(
     throw new Error("Package amount and package unit must be provided together")
   }
 
+  const linkedIngredientId =
+    input.linked_ingredient_id === undefined
+      ? current.linked_ingredient_id ??
+        (
+          await createPackagedIngredientPlaceholder(userId, {
+            name,
+            visibility: input.visibility ?? current.visibility,
+            verification_status: input.verification_status ?? current.verification_status,
+            source_note:
+              "Created automatically from a barcode product update. Nutrition remains on the barcode record until packaged-food nutrition is fully unified.",
+          })
+        ).id
+      : input.linked_ingredient_id
+
   const { data, error } = await supabase
     .from("barcode_products")
     .update({
-      linked_ingredient_id:
-        input.linked_ingredient_id === undefined
-          ? current.linked_ingredient_id
-          : input.linked_ingredient_id,
+      linked_ingredient_id: linkedIngredientId,
       barcode,
       normalized_barcode: barcode,
       name,
@@ -340,6 +368,17 @@ export async function updateBarcodeProduct(
     .single()
 
   if (error) throw error
+  if (linkedIngredientId) {
+    await upsertIngredientBarcode(userId, {
+      ingredient_id: linkedIngredientId,
+      barcode,
+      source_type: input.source_type ?? current.source_type,
+      notes:
+        input.notes === undefined ? current.notes : normalizeOptionalString(input.notes),
+      visibility: input.visibility ?? current.visibility,
+      verification_status: input.verification_status ?? current.verification_status,
+    })
+  }
   return data as BarcodeProductRecord
 }
 

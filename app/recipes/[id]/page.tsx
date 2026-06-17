@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import AppShell from "../../components/AppShell";
+import BackButton from "../../components/BackButton";
 import { TEMPLATE_RECIPES, loadRecipes, type Recipe } from "../../lib/recipes";
 import {
   filterLabel,
@@ -27,14 +28,27 @@ function perServing(recipe: Recipe) {
   };
 }
 
-export default function RecipeDetailPage() {
+function RecipeDetailPageContent() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const recipeId = Array.isArray(params?.id) ? params.id[0] : params?.id;
   const [authChecked, setAuthChecked] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const pickerDay = searchParams.get("day");
+  const pickerSlotType = searchParams.get("slotType");
+  const pickerSlotKey = searchParams.get("slotKey");
+  const pickerSlotLabel = searchParams.get("slotLabel");
+  const pickerReturnHref = searchParams.get("pickerReturn") === "macros" ? "/macros" : "/meals";
+  const plannerPickerMode =
+    searchParams.get("pickForPlanner") === "1" &&
+    !!pickerDay &&
+    !!pickerSlotType &&
+    !!pickerSlotKey;
+  const recipeBookHref = plannerPickerMode ? `/recipes?${searchParams.toString()}` : "/recipes";
 
   useEffect(() => {
     setFavoriteIds(readFavoriteRecipeIds());
@@ -120,9 +134,27 @@ export default function RecipeDetailPage() {
     });
   }
 
+  function chooseRecipeForPlanner() {
+    if (!recipe || !plannerPickerMode || !pickerDay || !pickerSlotType || !pickerSlotKey) return;
+
+    const nextParams = new URLSearchParams({
+      pickedRecipe: recipe.id,
+      pickedTemplate: recipe.isTemplate ? "1" : "0",
+      day: pickerDay,
+      slotType: pickerSlotType,
+      slotKey: pickerSlotKey,
+    });
+
+    if (pickerSlotLabel) {
+      nextParams.set("slotLabel", pickerSlotLabel);
+    }
+
+    router.push(`${pickerReturnHref}?${nextParams.toString()}`);
+  }
+
   if (redirecting || !authChecked) {
     return (
-      <AppShell title="Recipe" subtitle="Loading recipe..." backHref="/recipes" backLabel="Recipes">
+      <AppShell title="Recipe" subtitle="Loading recipe..." backHref={recipeBookHref} backLabel="Recipes">
         <div className="text-sm text-gray-400">Loading...</div>
       </AppShell>
     );
@@ -130,7 +162,7 @@ export default function RecipeDetailPage() {
 
   if (!recipe) {
     return (
-      <AppShell title="Recipe" subtitle="Recipe details" backHref="/recipes" backLabel="Recipes">
+      <AppShell title="Recipe" subtitle="Recipe details" backHref={recipeBookHref} backLabel="Recipes">
         <div className="rounded-3xl border border-dashed border-gray-700 bg-gray-800/50 p-5 text-sm text-gray-400">
           {error ?? "Recipe not found."}
         </div>
@@ -143,11 +175,39 @@ export default function RecipeDetailPage() {
   return (
     <AppShell
       title={recipe.name}
-      subtitle="Recipe details"
-      backHref="/recipes"
-      backLabel="Recipes"
+      subtitle={plannerPickerMode ? `Choosing for ${pickerSlotLabel ?? "your meal"}` : "Recipe details"}
+      backHref={recipeBookHref}
+      backLabel={plannerPickerMode ? "Recipe results" : "Recipes"}
     >
       <div className="space-y-4">
+        {plannerPickerMode ? (
+          <section className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">
+                  Use this recipe for {pickerSlotLabel ?? "your meal"}?
+                </div>
+                <p className="mt-1 text-xs text-emerald-100/75">
+                  Review the ingredients and steps, then send it back to your planner.
+                </p>
+              </div>
+              <BackButton
+                fallbackHref={recipeBookHref}
+                className="rounded-2xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800"
+              >
+                Results
+              </BackButton>
+            </div>
+            <button
+              type="button"
+              onClick={chooseRecipeForPlanner}
+              className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Use In {pickerSlotLabel ?? "Meal"}
+            </button>
+          </section>
+        ) : null}
+
         {error ? (
           <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
@@ -262,13 +322,37 @@ export default function RecipeDetailPage() {
           )}
         </section>
 
-        <Link
-          href="/recipes/create"
-          className="block rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-[0_10px_30px_rgba(37,99,235,0.28)] hover:bg-blue-700"
-        >
-          Create Another Recipe
-        </Link>
+        {plannerPickerMode ? (
+          <button
+            type="button"
+            onClick={chooseRecipeForPlanner}
+            className="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-[0_10px_30px_rgba(5,150,105,0.2)] hover:bg-emerald-700"
+          >
+            Use In {pickerSlotLabel ?? "Meal"}
+          </button>
+        ) : (
+          <Link
+            href="/recipes/create"
+            className="block rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-[0_10px_30px_rgba(37,99,235,0.28)] hover:bg-blue-700"
+          >
+            Create Another Recipe
+          </Link>
+        )}
       </div>
     </AppShell>
+  );
+}
+
+export default function RecipeDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Recipe" subtitle="Loading recipe..." backHref="/recipes" backLabel="Recipes">
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <RecipeDetailPageContent />
+    </Suspense>
   );
 }

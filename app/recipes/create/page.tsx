@@ -16,8 +16,6 @@ import AppShell from "../../components/AppShell";
 import {
   TEMPLATE_RECIPES,
   addRecipe,
-  deleteRecipe,
-  exportRecipeShareCode,
   importRecipeShareCode,
   loadRecipes,
   mergeImportedRecipe,
@@ -30,7 +28,6 @@ import {
   type MealSlotKey,
   type SnackSlot,
   type PlannerDayKey,
-  type PlannerDayState,
   type PlannerStateByDay,
 } from "../../lib/plannerStorage";
 import { loadGroceryList, saveGroceryList, type GroceryMode } from "../../lib/grocery";
@@ -39,11 +36,8 @@ import { addIngredientsToGrocery } from "../../lib/mealplan";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import {
-  createIngredient,
-  deleteIngredient,
   listVisibleIngredients,
   promoteIngredientToVerifiedForTesting,
-  updateIngredient as updateIngredientRecord,
   type IngredientRecord as IngredientLibraryItem,
 } from "../../lib/supabase/ingredients-db";
 import type { ImportedRecipeDraft } from "../../lib/recipe-url-import";
@@ -52,33 +46,20 @@ import type { ImportedRecipeDraft } from "../../lib/recipe-url-import";
 
 type PlannerTab = "planner" | "recipes" | "create";
 type ImportMode = "website" | "code";
+type BuilderSection = "import" | "basics" | "ingredients" | "steps" | "review";
+
+const BUILDER_SECTIONS: { id: BuilderSection; label: string; helper: string }[] = [
+  { id: "import", label: "Import", helper: "Optional start" },
+  { id: "basics", label: "Basics", helper: "Name and macros" },
+  { id: "ingredients", label: "Ingredients", helper: "Foods and amounts" },
+  { id: "steps", label: "Steps", helper: "Cooking notes" },
+  { id: "review", label: "Review", helper: "Save recipe" },
+];
 
 type ActiveSlot =
   | { type: "meal"; key: MealSlotKey }
   | { type: "snack"; key: string }
   | null;
-
-const CATEGORY_OPTIONS: Ingredient["category"][] = [
-  "produce",
-  "dairy",
-  "meat",
-  "pantry",
-  "frozen",
-  "snacks",
-  "other",
-];
-
-
-
-const CATEGORY_LABELS: Record<Ingredient["category"], string> = {
-  produce: "Produce",
-  dairy: "Dairy",
-  meat: "Meat",
-  pantry: "Pantry",
-  frozen: "Frozen",
-  snacks: "Snacks",
-  other: "Other",
-};
 
 function createDefaultMealSlots(): Record<MealSlotKey, MealSlot> {
   return {
@@ -429,10 +410,6 @@ function formatIngredientLibraryOption(ingredient: IngredientLibraryItem) {
   return `${ingredient.name} (${label})`;
 }
 
-function formatMacroNumberInput(value: number) {
-  return Number.isFinite(value) ? String(value) : "0";
-}
-
 function roundMacroValue(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -506,11 +483,16 @@ function formatParsedQuantityHint(
   return `Parsed as ~${grams}g for macro calculations.`;
 }
 
-function optionalPositiveNumber(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : NaN;
+function buildInventoryIngredientCreateHref(name: string) {
+  const params = new URLSearchParams({
+    returnTo: "/recipes/create",
+  });
+
+  if (name.trim()) {
+    params.set("prefillName", name.trim());
+  }
+
+  return `/inventory/add?${params.toString()}`;
 }
 
 function TabButton({
@@ -568,7 +550,6 @@ export default function MealsPage() {
   const [tab, setTab] = useState<PlannerTab>("create");
 
   const [myRecipes, setMyRecipes] = useState<Recipe[]>([]);
-  const [search, setSearch] = useState("");
 const [authChecked, setAuthChecked] = useState(false);
 const [redirecting, setRedirecting] = useState(false);
 const router = useRouter();
@@ -598,7 +579,7 @@ const snackSlots = plannerByDay[selectedDay].snackSlots;
 
 const [plannerMsg, setPlannerMsg] = useState<string | null>(null);
 const [plannerErr, setPlannerErr] = useState<string | null>(null);
-  const [activeSlot, setActiveSlot] = useState<ActiveSlot>(null);
+  const [, setActiveSlot] = useState<ActiveSlot>(null);
 
   const [viewerRecipe, setViewerRecipe] = useState<Recipe | null>(null);
   const [viewerServings, setViewerServings] = useState(1);
@@ -614,37 +595,8 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [ingredientLibrary, setIngredientLibrary] = useState<IngredientLibraryItem[]>([]);
   const [recipeCreateError, setRecipeCreateError] = useState<string | null>(null);
   const [recipeCreateMsg, setRecipeCreateMsg] = useState<string | null>(null);
-  const [customIngredientRow, setCustomIngredientRow] = useState<number | null>(null);
-  const [customIngredientName, setCustomIngredientName] = useState("");
-  const [customIngredientReferenceAmount, setCustomIngredientReferenceAmount] = useState("");
-  const [customIngredientCalories, setCustomIngredientCalories] = useState("");
-  const [customIngredientProtein, setCustomIngredientProtein] = useState("");
-  const [customIngredientCarbs, setCustomIngredientCarbs] = useState("");
-  const [customIngredientFat, setCustomIngredientFat] = useState("");
-  const [customIngredientCupGrams, setCustomIngredientCupGrams] = useState("");
-  const [customIngredientTablespoonGrams, setCustomIngredientTablespoonGrams] = useState("");
-  const [customIngredientTeaspoonGrams, setCustomIngredientTeaspoonGrams] = useState("");
-  const [customIngredientPieceGrams, setCustomIngredientPieceGrams] = useState("");
-  const [customIngredientPieceLabel, setCustomIngredientPieceLabel] = useState("");
-  const [customIngredientError, setCustomIngredientError] = useState<string | null>(null);
-  const [customIngredientSaving, setCustomIngredientSaving] = useState(false);
-  const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null);
-  const [editingIngredientName, setEditingIngredientName] = useState("");
-  const [editingIngredientReferenceAmount, setEditingIngredientReferenceAmount] = useState("");
-  const [editingIngredientCalories, setEditingIngredientCalories] = useState("");
-  const [editingIngredientProtein, setEditingIngredientProtein] = useState("");
-  const [editingIngredientCarbs, setEditingIngredientCarbs] = useState("");
-  const [editingIngredientFat, setEditingIngredientFat] = useState("");
-  const [editingIngredientCupGrams, setEditingIngredientCupGrams] = useState("");
-  const [editingIngredientTablespoonGrams, setEditingIngredientTablespoonGrams] = useState("");
-  const [editingIngredientTeaspoonGrams, setEditingIngredientTeaspoonGrams] = useState("");
-  const [editingIngredientPieceGrams, setEditingIngredientPieceGrams] = useState("");
-  const [editingIngredientPieceLabel, setEditingIngredientPieceLabel] = useState("");
-  const [ingredientManagerError, setIngredientManagerError] = useState<string | null>(null);
-  const [ingredientManagerMsg, setIngredientManagerMsg] = useState<string | null>(null);
   const [ingredientManagerSaving, setIngredientManagerSaving] = useState(false);
   const [ingredientManagerSearch, setIngredientManagerSearch] = useState("");
-  const [ingredientManagerSort, setIngredientManagerSort] = useState<"az" | "newest" | "updated">("az");
   const [publicIngredientSearch, setPublicIngredientSearch] = useState("");
 
   const [recipeShareCode, setRecipeShareCode] = useState("");
@@ -660,6 +612,7 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [importPreviewRecipe, setImportPreviewRecipe] =
     useState<ImportedRecipeDraft | null>(null);
   const [importPreviewWarning, setImportPreviewWarning] = useState<string | null>(null);
+  const [builderSection, setBuilderSection] = useState<BuilderSection>("import");
 
 const [lastLogUndo, setLastLogUndo] = useState<
   | {
@@ -750,7 +703,6 @@ useEffect(() => {
 
 
 
-  const allRecipes = useMemo(() => [...TEMPLATE_RECIPES, ...myRecipes], [myRecipes]);
   const ingredientLibraryByName = useMemo(() => {
     const map = new Map<string, IngredientLibraryItem>();
 
@@ -782,25 +734,10 @@ useEffect(() => {
       ingredient.name.toLowerCase().includes(query)
     );
   }, [ingredientManagerSearch, privateIngredients]);
-  const filteredAndSortedPrivateIngredients = useMemo(() => {
-    const items = [...filteredPrivateIngredients];
-
-    if (ingredientManagerSort === "newest") {
-      return items.sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-    }
-
-    if (ingredientManagerSort === "updated") {
-      return items.sort(
-        (a, b) =>
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      );
-    }
-
-    return items.sort((a, b) => a.name.localeCompare(b.name));
-  }, [filteredPrivateIngredients, ingredientManagerSort]);
+  const filteredAndSortedPrivateIngredients = useMemo(
+    () => [...filteredPrivateIngredients].sort((a, b) => a.name.localeCompare(b.name)),
+    [filteredPrivateIngredients]
+  );
 
   const filteredPublicIngredients = useMemo(() => {
     const query = publicIngredientSearch.trim().toLowerCase();
@@ -896,18 +833,11 @@ useEffect(() => {
     };
   }, [defaultServings, recipeBuilderAnalysis]);
 
-  const filteredRecipes = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return allRecipes;
-
-    return allRecipes.filter((recipe) => {
-      const nameMatch = recipe.name.toLowerCase().includes(q);
-      const ingredientMatch = recipe.ingredients.some((ing) =>
-        ing.name.toLowerCase().includes(q)
-      );
-      return nameMatch || ingredientMatch;
-    });
-  }, [allRecipes, search]);
+  const builderSectionIndex = BUILDER_SECTIONS.findIndex(
+    (section) => section.id === builderSection
+  );
+  const previousBuilderSection = BUILDER_SECTIONS[builderSectionIndex - 1]?.id ?? null;
+  const nextBuilderSection = BUILDER_SECTIONS[builderSectionIndex + 1]?.id ?? null;
 
 async function undoLastLog() {
   const undo = lastLogUndo;
@@ -990,45 +920,6 @@ async function undoLastLog() {
   setLastLogUndo(null);
 
   window.setTimeout(() => setPlannerMsg(null), 1800);
-}
-
-async function setMealSlotRecipe(slot: MealSlotKey, recipe: Recipe) {
-  const servings =
-    plannerByDay[selectedDay].mealSlots[slot].servings ||
-    recipe.defaultServings ||
-    1;
-
-  setPlannerByDay((prev) => ({
-    ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
-      mealSlots: {
-        ...prev[selectedDay].mealSlots,
-        [slot]: {
-          recipe,
-          servings,
-          logged: false,
-        },
-      },
-    },
-  }));
-
-  const result = await upsertPlannedMeal({
-    day_key: selectedDay,
-    slot_type: "meal",
-    slot_key: slot,
-    recipe_id: recipe.isTemplate ? null : recipe.id,
-    template_id: recipe.isTemplate ? recipe.id : null,
-    servings,
-    logged: false,
-    sort_order: 0,
-  });
-
-  if (result.error) {
-    setPlannerMsg(null);
-    setPlannerErr(result.error);
-    return;
-  }
 }
 
 function collectPlannerIngredients() {
@@ -1305,45 +1196,6 @@ function collectAllPlannedIngredients() {
 
   return collected;
 }
-async function setSnackRecipe(id: string, recipe: Recipe) {
-  const currentSnack = plannerByDay[selectedDay].snackSlots.find((snack) => snack.id === id);
-  const servings = currentSnack?.servings || recipe.defaultServings || 1;
-  const sortOrder = getSnackSortOrder(plannerByDay[selectedDay].snackSlots, id);
-
-  setPlannerByDay((prev) => ({
-    ...prev,
-    [selectedDay]: {
-      ...prev[selectedDay],
-      snackSlots: prev[selectedDay].snackSlots.map((snack) =>
-        snack.id === id
-          ? {
-              ...snack,
-              recipe,
-              servings,
-              logged: false,
-            }
-          : snack
-      ),
-    },
-  }));
-
-  const result = await upsertPlannedMeal({
-    day_key: selectedDay,
-    slot_type: "snack",
-    slot_key: id,
-    recipe_id: recipe.isTemplate ? null : recipe.id,
-    template_id: recipe.isTemplate ? recipe.id : null,
-    servings,
-    logged: false,
-    sort_order: sortOrder,
-  });
-
-  if (result.error) {
-    setPlannerMsg(null);
-    setPlannerErr(result.error);
-    return;
-  }
-}
 async function updateMealSlotServings(slot: MealSlotKey, delta: number) {
   const currentSlot = plannerByDay[selectedDay].mealSlots[slot];
   const nextServings = Math.max(1, currentSlot.servings + delta);
@@ -1421,19 +1273,6 @@ setPlannerMsg(
     setTab("recipes");
   }
 
-  async function assignRecipeToActiveSlot(recipe: Recipe) {
-  if (!activeSlot) return;
-
-  if (activeSlot.type === "meal") {
-    await setMealSlotRecipe(activeSlot.key, recipe);
-  } else {
-    await setSnackRecipe(activeSlot.key, recipe);
-  }
-
-  setActiveSlot(null);
-  setTab("planner");
-}
-
   function openViewer(recipe: Recipe, servings?: number) {
     setViewerRecipe(recipe);
     setViewerServings(servings ?? recipe.defaultServings ?? 1);
@@ -1498,203 +1337,8 @@ setPlannerMsg(
     );
   }
 
-  function openCustomIngredientForm(index: number) {
-    const ingredient = ingredients[index];
-    if (!ingredient) return;
-
-    setCustomIngredientRow(index);
-    setCustomIngredientError(null);
-    setCustomIngredientName(ingredient.name.trim());
-    setCustomIngredientReferenceAmount(
-      ingredient.quantityGrams != null ? formatMacroNumberInput(ingredient.quantityGrams) : ""
-    );
-    setCustomIngredientCalories("");
-    setCustomIngredientProtein("");
-    setCustomIngredientCarbs("");
-    setCustomIngredientFat("");
-    setCustomIngredientCupGrams("");
-    setCustomIngredientTablespoonGrams("");
-    setCustomIngredientTeaspoonGrams("");
-    setCustomIngredientPieceGrams("");
-    setCustomIngredientPieceLabel("");
-  }
-
-  function closeCustomIngredientForm() {
-    setCustomIngredientRow(null);
-    setCustomIngredientError(null);
-    setCustomIngredientSaving(false);
-  }
-
-  function startEditingIngredient(ingredient: IngredientLibraryItem) {
-    setEditingIngredientId(ingredient.id);
-    setIngredientManagerError(null);
-    setIngredientManagerMsg(null);
-    setEditingIngredientName(ingredient.name);
-    setEditingIngredientReferenceAmount(formatMacroNumberInput(Number(ingredient.reference_amount_g)));
-    setEditingIngredientCalories(formatMacroNumberInput(Number(ingredient.reference_calories)));
-    setEditingIngredientProtein(formatMacroNumberInput(Number(ingredient.reference_protein_g)));
-    setEditingIngredientCarbs(formatMacroNumberInput(Number(ingredient.reference_carbs_g)));
-    setEditingIngredientFat(formatMacroNumberInput(Number(ingredient.reference_fat_g)));
-    setEditingIngredientCupGrams(ingredient.cup_g != null ? formatMacroNumberInput(Number(ingredient.cup_g)) : "");
-    setEditingIngredientTablespoonGrams(ingredient.tbsp_g != null ? formatMacroNumberInput(Number(ingredient.tbsp_g)) : "");
-    setEditingIngredientTeaspoonGrams(ingredient.tsp_g != null ? formatMacroNumberInput(Number(ingredient.tsp_g)) : "");
-    setEditingIngredientPieceGrams(ingredient.piece_g != null ? formatMacroNumberInput(Number(ingredient.piece_g)) : "");
-    setEditingIngredientPieceLabel(ingredient.piece_label ?? "");
-  }
-
-  function stopEditingIngredient() {
-    setEditingIngredientId(null);
-    setIngredientManagerError(null);
-    setIngredientManagerSaving(false);
-  }
-
-  async function saveEditedIngredient(ingredientId: string) {
-    if (!currentUserId) {
-      setIngredientManagerError("You need to be signed in to edit a private ingredient.");
-      return;
-    }
-
-    const trimmedName = editingIngredientName.trim();
-    const referenceAmount = Number(editingIngredientReferenceAmount);
-    const calories = Number(editingIngredientCalories);
-    const protein = Number(editingIngredientProtein);
-    const carbs = Number(editingIngredientCarbs);
-    const fat = Number(editingIngredientFat);
-    const cupGrams = optionalPositiveNumber(editingIngredientCupGrams);
-    const tablespoonGrams = optionalPositiveNumber(editingIngredientTablespoonGrams);
-    const teaspoonGrams = optionalPositiveNumber(editingIngredientTeaspoonGrams);
-    const pieceGrams = optionalPositiveNumber(editingIngredientPieceGrams);
-    const pieceLabel = editingIngredientPieceLabel.trim();
-
-    if (!trimmedName) {
-      setIngredientManagerError("Ingredient name is required.");
-      return;
-    }
-
-    if (!Number.isFinite(referenceAmount) || referenceAmount <= 0) {
-      setIngredientManagerError("Reference amount must be greater than 0 grams.");
-      return;
-    }
-
-    if ([calories, protein, carbs, fat].some((value) => !Number.isFinite(value) || value < 0)) {
-      setIngredientManagerError("Macro values must be 0 or greater.");
-      return;
-    }
-
-    if ([cupGrams, tablespoonGrams, teaspoonGrams, pieceGrams].some((value) => Number.isNaN(value))) {
-      setIngredientManagerError("Conversion values must be blank or greater than 0.");
-      return;
-    }
-
-    if ((pieceGrams != null && !pieceLabel) || (pieceLabel && pieceGrams == null)) {
-      setIngredientManagerError("Piece conversions need both a label and a gram value.");
-      return;
-    }
-
-    setIngredientManagerSaving(true);
-    setIngredientManagerError(null);
-
-    try {
-      const updatedIngredient = await updateIngredientRecord(ingredientId, currentUserId, {
-        name: trimmedName,
-        reference_amount_g: referenceAmount,
-        reference_calories: calories,
-        reference_protein_g: protein,
-        reference_carbs_g: carbs,
-        reference_fat_g: fat,
-        cup_g: cupGrams,
-        tbsp_g: tablespoonGrams,
-        tsp_g: teaspoonGrams,
-        piece_g: pieceGrams,
-        piece_label: pieceLabel || null,
-        visibility: "private",
-        verification_status: "custom",
-      });
-
-      setIngredientLibrary((prev) =>
-        prev
-          .map((ingredient) =>
-            ingredient.id === ingredientId ? updatedIngredient : ingredient
-          )
-          .sort((a, b) => a.name.localeCompare(b.name))
-      );
-
-      setIngredients((prev) =>
-        prev.map((ingredient) =>
-          ingredient.ingredientId === ingredientId
-            ? {
-                ...ingredient,
-                name: updatedIngredient.name,
-                isLinked: true,
-                isPrivate: true,
-              }
-            : ingredient
-        )
-      );
-
-      setIngredientManagerMsg(`Updated "${updatedIngredient.name}".`);
-      stopEditingIngredient();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Private ingredient could not be updated.";
-      setIngredientManagerError(message);
-      setIngredientManagerSaving(false);
-    }
-  }
-
-  async function removePrivateIngredient(ingredient: IngredientLibraryItem) {
-    if (!currentUserId) {
-      setIngredientManagerError("You need to be signed in to delete a private ingredient.");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete "${ingredient.name}" from your private ingredient library? Linked recipe rows will become manual ingredients.`
-    );
-
-    if (!confirmed) return;
-
-    setIngredientManagerSaving(true);
-    setIngredientManagerError(null);
-    setIngredientManagerMsg(null);
-
-    try {
-      await deleteIngredient(ingredient.id, currentUserId);
-
-      setIngredientLibrary((prev) => prev.filter((item) => item.id !== ingredient.id));
-      setIngredients((prev) =>
-        prev.map((item) =>
-          item.ingredientId === ingredient.id
-            ? {
-                ...item,
-                ingredientId: undefined,
-                isLinked: false,
-                isPrivate: false,
-              }
-            : item
-        )
-      );
-
-      if (editingIngredientId === ingredient.id) {
-        stopEditingIngredient();
-      } else {
-        setIngredientManagerSaving(false);
-      }
-
-      setIngredientManagerMsg(`Deleted "${ingredient.name}".`);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Private ingredient could not be deleted.";
-      setIngredientManagerError(message);
-      setIngredientManagerSaving(false);
-    }
-  }
-
   async function promotePrivateIngredientForTesting(ingredient: IngredientLibraryItem) {
-    if (!currentUserId) {
-      setIngredientManagerError("You need to be signed in to promote a private ingredient.");
-      return;
-    }
+    if (!currentUserId) return;
 
     const confirmed = window.confirm(
       `Temporarily promote "${ingredient.name}" into the verified ingredient library for testing?`
@@ -1703,8 +1347,6 @@ setPlannerMsg(
     if (!confirmed) return;
 
     setIngredientManagerSaving(true);
-    setIngredientManagerError(null);
-    setIngredientManagerMsg(null);
 
     try {
       const promotedIngredient = await promoteIngredientToVerifiedForTesting(
@@ -1728,113 +1370,10 @@ setPlannerMsg(
         )
       );
 
-      stopEditingIngredient();
-      setIngredientManagerMsg(`Promoted "${promotedIngredient.name}" to the verified library.`);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Private ingredient could not be promoted.";
-      setIngredientManagerError(message);
+      console.error("Private ingredient could not be promoted.", error);
+    } finally {
       setIngredientManagerSaving(false);
-    }
-  }
-
-  async function saveCustomIngredient(index: number) {
-    const ingredient = ingredients[index];
-
-    if (!ingredient || !currentUserId) {
-      setCustomIngredientError("You need to be signed in to save a private ingredient.");
-      return;
-    }
-
-    const trimmedName = customIngredientName.trim();
-    const referenceAmount = Number(customIngredientReferenceAmount);
-
-    if (!trimmedName) {
-      setCustomIngredientError("Ingredient name is required.");
-      return;
-    }
-
-    if (!Number.isFinite(referenceAmount) || referenceAmount <= 0) {
-      setCustomIngredientError("Reference amount must be greater than 0 grams.");
-      return;
-    }
-
-    const calories = Number(customIngredientCalories);
-    const protein = Number(customIngredientProtein);
-    const carbs = Number(customIngredientCarbs);
-    const fat = Number(customIngredientFat);
-    const cupGrams = optionalPositiveNumber(customIngredientCupGrams);
-    const tablespoonGrams = optionalPositiveNumber(customIngredientTablespoonGrams);
-    const teaspoonGrams = optionalPositiveNumber(customIngredientTeaspoonGrams);
-    const pieceGrams = optionalPositiveNumber(customIngredientPieceGrams);
-    const pieceLabel = customIngredientPieceLabel.trim();
-
-    if ([calories, protein, carbs, fat].some((value) => !Number.isFinite(value) || value < 0)) {
-      setCustomIngredientError("Macro values must be 0 or greater.");
-      return;
-    }
-
-    if ([cupGrams, tablespoonGrams, teaspoonGrams, pieceGrams].some((value) => Number.isNaN(value))) {
-      setCustomIngredientError("Conversion values must be blank or greater than 0.");
-      return;
-    }
-
-    if ((pieceGrams != null && !pieceLabel) || (pieceLabel && pieceGrams == null)) {
-      setCustomIngredientError("Piece conversions need both a label and a gram value.");
-      return;
-    }
-
-    setCustomIngredientSaving(true);
-    setCustomIngredientError(null);
-
-    try {
-      const createdIngredient = await createIngredient(currentUserId, {
-        name: trimmedName,
-        reference_amount_g: referenceAmount,
-        reference_calories: calories,
-        reference_protein_g: protein,
-        reference_carbs_g: carbs,
-        reference_fat_g: fat,
-        cup_g: cupGrams,
-        tbsp_g: tablespoonGrams,
-        tsp_g: teaspoonGrams,
-        piece_g: pieceGrams,
-        piece_label: pieceLabel || null,
-        visibility: "private",
-        verification_status: "custom",
-        source_note: "Created in recipe builder",
-      });
-
-      setIngredientLibrary((prev) =>
-        [...prev, createdIngredient].sort((a, b) => a.name.localeCompare(b.name))
-      );
-
-      setIngredients((prev) =>
-        prev.map((item, itemIndex) => {
-          if (itemIndex !== index) return item;
-
-          const nextQuantityGrams =
-            item.quantityGrams != null ? item.quantityGrams : referenceAmount;
-
-          return {
-            ...item,
-            name: createdIngredient.name,
-            ingredientId: createdIngredient.id,
-            isLinked: true,
-            isPrivate: true,
-            quantityGrams: nextQuantityGrams,
-            qty: item.qty?.trim() ? item.qty : `${nextQuantityGrams}g`,
-          };
-        })
-      );
-
-      setRecipeCreateMsg(`Saved "${createdIngredient.name}" to your private ingredient library.`);
-      closeCustomIngredientForm();
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Private ingredient could not be created.";
-      setCustomIngredientError(message);
-      setCustomIngredientSaving(false);
     }
   }
 
@@ -1844,6 +1383,12 @@ setPlannerMsg(
 
   function removeIngredientRow(i: number) {
     setIngredients((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function openInventoryIngredientCreate(index: number) {
+    const ingredient = ingredients[index];
+    const href = buildInventoryIngredientCreateHref(ingredient?.name ?? "");
+    router.push(href);
   }
 
   function updateStep(i: number, value: string) {
@@ -1880,7 +1425,17 @@ setPlannerMsg(
 
     const servingsNum = Math.max(1, Number(defaultServings) || 1);
 
-    if (!cleanedName || cleanedIngredients.length === 0) return;
+    if (!cleanedName) {
+      setRecipeCreateError("Give the recipe a name before saving.");
+      setBuilderSection("basics");
+      return;
+    }
+
+    if (cleanedIngredients.length === 0) {
+      setRecipeCreateError("Add at least one ingredient before saving.");
+      setBuilderSection("ingredients");
+      return;
+    }
 
     const invalidLinkedIngredients = recipeBuilderAnalysis.invalidLinked;
 
@@ -1888,6 +1443,7 @@ setPlannerMsg(
       setRecipeCreateError(
         "Linked ingredients need gram-based quantities like 120g or 0.5kg so Macro OS can calculate macros accurately."
       );
+      setBuilderSection("ingredients");
       return;
     }
 
@@ -1947,65 +1503,9 @@ try {
     setTotalFat("");
     setIngredients([emptyIngredient()]);
     setSteps([""]);
+    setBuilderSection("import");
     setTab("recipes");
   }
-
-async function onDeleteRecipe(id: string) {
-  try {
-  const nextRecipes = await deleteRecipe(myRecipes, id);
-  setMyRecipes(nextRecipes);
-} catch (error) {
-  console.error("Failed to delete recipe:", error);
-  return;
-}
-
-  setPlannerByDay((prev) => {
-    const next = { ...prev };
-
-    (Object.keys(next) as PlannerDayKey[]).forEach((dayKey) => {
-      next[dayKey] = {
-        mealSlots: {
-          breakfast:
-            next[dayKey].mealSlots.breakfast.recipe?.id === id
-              ? { recipe: null, servings: 1, logged: false }
-              : next[dayKey].mealSlots.breakfast,
-          lunch:
-            next[dayKey].mealSlots.lunch.recipe?.id === id
-              ? { recipe: null, servings: 1, logged: false }
-              : next[dayKey].mealSlots.lunch,
-          dinner:
-            next[dayKey].mealSlots.dinner.recipe?.id === id
-              ? { recipe: null, servings: 1, logged: false }
-              : next[dayKey].mealSlots.dinner,
-        },
-        snackSlots: next[dayKey].snackSlots.map((snack) =>
-          snack.recipe?.id === id
-            ? { ...snack, recipe: null, servings: 1, logged: false }
-            : snack
-        ),
-      };
-    });
-
-    return next;
-  });
-
-  if (viewerRecipe?.id === id) {
-    closeViewer();
-  }
-}
-  async function onShareRecipe(recipe: Recipe) {
-    try {
-      const code = exportRecipeShareCode(recipe);
-      await navigator.clipboard.writeText(code);
-      setRecipeShareErr(null);
-      setRecipeShareMsg("Recipe code copied Ã¢Å“â€¦");
-      window.setTimeout(() => setRecipeShareMsg(null), 1600);
-    } catch {
-      setRecipeShareMsg(null);
-      setRecipeShareErr("CouldnÃ¢â‚¬â„¢t copy recipe code.");
-    }
-  }
-
 async function onImportRecipe() {
   try {
     const imported = importRecipeShareCode(recipeShareCode);
@@ -2040,6 +1540,7 @@ function applyImportedRecipeDraft(recipe: ImportedRecipeDraft) {
       recipe.ingredients.length === 1 ? "" : "s"
     } and ${recipe.steps.length} step${recipe.steps.length === 1 ? "" : "s"} from the website.`
   );
+  setBuilderSection("basics");
   window.setTimeout(() => setRecipeCreateMsg(null), 2200);
 }
 
@@ -2182,50 +1683,49 @@ async function onImportRecipeUrl() {
 
 if (redirecting || !authChecked) {
   return (
-    <AppShell title="Create" subtitle="Build a new recipe" backHref="/recipes" backLabel="Create">
+    <AppShell title="Create Recipe" subtitle="Build manually or import a recipe" backHref="/recipes" backLabel="Recipe Book">
       <div className="text-sm text-gray-400">Loading...</div>
     </AppShell>
   );
 }
-
-const activeSlotLabel = (() => {
-  if (!activeSlot) return null;
-  if (activeSlot.type === "meal") {
-    return activeSlot.key.charAt(0).toUpperCase() + activeSlot.key.slice(1);
-  }
-
-  const snackIndex = snackSlots.findIndex((snack) => snack.id === activeSlot.key);
-  return snackIndex >= 0 ? `Snack ${snackIndex + 1}` : "Snack";
-})();
-
+function BuilderSectionButton({
+  active,
+  label,
+  helper,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  helper: string;
+  onClick: () => void;
+}) {
   return (
-    <AppShell title="Create" subtitle="Build a new recipe" backHref="/recipes" backLabel="Create">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-w-[116px] rounded-2xl border px-3 py-2 text-left transition ${
+        active
+          ? "border-blue-400/50 bg-blue-600 text-white shadow-[0_10px_30px_rgba(37,99,235,0.22)]"
+          : "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800"
+      }`}
+    >
+      <div className="text-sm font-semibold">{label}</div>
+      <div className={`mt-0.5 text-[11px] ${active ? "text-blue-100" : "text-gray-500"}`}>
+        {helper}
+      </div>
+    </button>
+  );
+}
+  return (
+    <AppShell title="Create Recipe" subtitle="Build manually or import a recipe" backHref="/recipes" backLabel="Recipe Book">
       <div className="space-y-5">
         <div className="grid grid-cols-2 gap-2">
           <TabButton active={tab === "create"} onClick={() => setTab("create")}>
-            Create
+            Builder
           </TabButton>
           <TabButton active={tab === "recipes"} onClick={() => setTab("recipes")}>
-            Libraries
+            Ingredient Library
           </TabButton>
-        </div>
-
-        <div className="rounded-3xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Recipe Builder</h2>
-              <p className="mt-1 text-sm text-gray-400">
-                Create a recipe, import a code, and save ingredients as you go.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => router.push("/recipes")}
-              className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
-            >
-              Back to Book
-            </button>
-          </div>
         </div>
 
         {viewerRecipe && (
@@ -2720,6 +2220,22 @@ const activeSlotLabel = (() => {
           >
             <h2 className="text-lg font-semibold text-white">Create Recipe</h2>
 
+            <div className="rounded-3xl border border-gray-700 bg-gray-950/40 p-3">
+              <div className="overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex min-w-max gap-2">
+                  {BUILDER_SECTIONS.map((section) => (
+                    <BuilderSectionButton
+                      key={section.id}
+                      active={builderSection === section.id}
+                      label={section.label}
+                      helper={section.helper}
+                      onClick={() => setBuilderSection(section.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {recipeCreateMsg && (
               <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">
                 {recipeCreateMsg}
@@ -2732,6 +2248,7 @@ const activeSlotLabel = (() => {
               </div>
             )}
 
+            {builderSection === "import" && (
             <div className="rounded-2xl border border-gray-700 bg-gray-900/60 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -3012,7 +2529,10 @@ const activeSlotLabel = (() => {
                 </div>
               )}
             </div>
+            )}
 
+            {builderSection === "basics" && (
+            <div className="space-y-4">
             <div>
               <label className="mb-1 block text-sm text-gray-300">Recipe name</label>
               <input
@@ -3155,9 +2675,24 @@ const activeSlotLabel = (() => {
                 />
               </div>
             </div>
+            </div>
+            )}
 
+            {builderSection === "ingredients" && (
             <div>
               <h3 className="mb-2 text-sm font-semibold text-gray-300">Ingredients</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/20 bg-blue-500/10 p-3">
+                <div className="text-xs text-blue-100/85">
+                  Recipe entry is now focused on selecting existing ingredients. New foods and barcode-based items should be created from Inventory.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push("/inventory/add?returnTo=/recipes/create")}
+                  className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  Open Inventory Intake
+                </button>
+              </div>
               <div className="mb-3 rounded-xl border border-gray-700 bg-gray-950/50 p-3 text-xs text-gray-400">
                 Quantity helpers: `g`, `kg`, `oz`, and `lb` always work. `ml` and `L` now work
                 for supported liquids and ingredients with saved volume conversions. `cup`, `tbsp`,
@@ -3192,7 +2727,7 @@ const activeSlotLabel = (() => {
                         </div>
                       </div>
 
-                      <div>
+                      <div className="md:col-span-2">
                         <label className="mb-1 block text-sm text-gray-300">Qty</label>
                         <input
                           value={ing.qty ?? ""}
@@ -3229,25 +2764,6 @@ const activeSlotLabel = (() => {
                           </div>
                         )}
                       </div>
-
-                      <div>
-                        <label className="mb-1 block text-sm text-gray-300">Category</label>
-                        <select
-                          value={ing.category}
-                          onChange={(e) =>
-                            updateIngredient(idx, {
-                              category: e.target.value as Ingredient["category"],
-                            })
-                          }
-                          className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                        >
-                          {CATEGORY_OPTIONS.map((cat) => (
-                            <option key={cat} value={cat}>
-                              {CATEGORY_LABELS[cat]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
                     </div>
 
                     {!ing.isLinked && ing.name.trim() && (
@@ -3256,192 +2772,19 @@ const activeSlotLabel = (() => {
                           Ingredient not in your library yet
                         </div>
                         <div className="mt-1 text-xs text-amber-200/80">
-                          Save it as a private ingredient to reuse it later and include it in macro calculations.
+                          Create it in Inventory so it can later support barcode, nutrition-label, and recipe use from one place.
                         </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            customIngredientRow === idx
-                              ? closeCustomIngredientForm()
-                              : openCustomIngredientForm(idx)
-                          }
-                          className="mt-3 rounded-xl bg-amber-400 px-3 py-2 text-sm font-semibold text-gray-950 hover:bg-amber-300"
-                        >
-                          {customIngredientRow === idx ? "Close Private Ingredient Form" : "Create Private Ingredient"}
-                        </button>
-                      </div>
-                    )}
-
-                    {customIngredientRow === idx && (
-                      <div className="mt-3 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
-                        <div className="text-sm font-semibold text-blue-100">
-                          Save Private Ingredient
-                        </div>
-                        <div className="mt-1 text-xs text-blue-100/80">
-                          Enter nutrition for a reference amount in grams. Macro OS will convert it to per-100g automatically.
-                        </div>
-
-                        {customIngredientError && (
-                          <div className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
-                            {customIngredientError}
-                          </div>
-                        )}
-
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <div className="col-span-2">
-                            <label className="mb-1 block text-sm text-gray-200">Ingredient name</label>
-                            <input
-                              value={customIngredientName}
-                              onChange={(e) => setCustomIngredientName(e.target.value)}
-                              className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                            />
-                          </div>
-
-                          <div className="col-span-2">
-                            <label className="mb-1 block text-sm text-gray-200">Reference amount (g)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={customIngredientReferenceAmount}
-                              onChange={(e) => setCustomIngredientReferenceAmount(e.target.value)}
-                              className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1 block text-sm text-gray-200">Calories</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={customIngredientCalories}
-                              onChange={(e) => setCustomIngredientCalories(e.target.value)}
-                              className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1 block text-sm text-gray-200">Protein (g)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={customIngredientProtein}
-                              onChange={(e) => setCustomIngredientProtein(e.target.value)}
-                              className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1 block text-sm text-gray-200">Carbs (g)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={customIngredientCarbs}
-                              onChange={(e) => setCustomIngredientCarbs(e.target.value)}
-                              className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-1 block text-sm text-gray-200">Fat (g)</label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={customIngredientFat}
-                              onChange={(e) => setCustomIngredientFat(e.target.value)}
-                              className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                            />
-                          </div>
-
-                          <div className="col-span-2 rounded-xl border border-gray-700 bg-gray-950/50 p-3">
-                            <div className="text-sm font-semibold text-gray-200">Optional conversions</div>
-                            <div className="mt-1 text-xs text-gray-400">
-                              Store ingredient-specific conversion helpers for cups, spoons, or a named piece like `egg` or `slice`.
-                            </div>
-
-                            <div className="mt-3 grid grid-cols-2 gap-2">
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-200">Cup (g)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={customIngredientCupGrams}
-                                  onChange={(e) => setCustomIngredientCupGrams(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-200">Tbsp (g)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={customIngredientTablespoonGrams}
-                                  onChange={(e) => setCustomIngredientTablespoonGrams(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-200">Tsp (g)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={customIngredientTeaspoonGrams}
-                                  onChange={(e) => setCustomIngredientTeaspoonGrams(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-1 block text-sm text-gray-200">Piece grams</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={customIngredientPieceGrams}
-                                  onChange={(e) => setCustomIngredientPieceGrams(e.target.value)}
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-
-                              <div className="col-span-2">
-                                <label className="mb-1 block text-sm text-gray-200">Piece label</label>
-                                <input
-                                  value={customIngredientPieceLabel}
-                                  onChange={(e) => setCustomIngredientPieceLabel(e.target.value)}
-                                  placeholder="e.g. egg, slice, scoop"
-                                  className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 flex gap-2">
+                        <div className="mt-3 flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => saveCustomIngredient(idx)}
-                            disabled={customIngredientSaving}
-                            className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => openInventoryIngredientCreate(idx)}
+                            className="rounded-xl bg-amber-400 px-3 py-2 text-sm font-semibold text-gray-950 hover:bg-amber-300"
                           >
-                            {customIngredientSaving ? "Saving..." : "Save Private Ingredient"}
+                            Create In Inventory
                           </button>
-                          <button
-                            type="button"
-                            onClick={closeCustomIngredientForm}
-                            disabled={customIngredientSaving}
-                            className="rounded-xl bg-gray-700 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Cancel
-                          </button>
+                          <div className="rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-100/80">
+                            You can still keep this as a manual ingredient for now.
+                          </div>
                         </div>
                       </div>
                     )}
@@ -3474,7 +2817,9 @@ const activeSlotLabel = (() => {
                 ))}
               </datalist>
             </div>
+            )}
 
+            {builderSection === "steps" && (
             <div>
               <h3 className="mb-2 text-sm font-semibold text-gray-300">
                 Recipe Steps (optional)
@@ -3518,17 +2863,107 @@ const activeSlotLabel = (() => {
                 + Add Step
               </button>
             </div>
+            )}
 
-            <button
-              type="submit"
-              className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(37,99,235,0.28)] hover:bg-blue-700"
-            >
-              Save Recipe
-            </button>
+            {builderSection === "review" && (
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-gray-700 bg-gray-900/60 p-4">
+                  <h3 className="text-sm font-semibold text-white">Review Recipe</h3>
+                  <p className="mt-1 text-sm text-gray-400">
+                    Check the shape of the recipe before it joins your book.
+                  </p>
+
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-2xl bg-gray-950/60 p-3">
+                      <div className="text-xs uppercase tracking-wide text-gray-500">Name</div>
+                      <div className="mt-1 text-sm font-semibold text-white">
+                        {recipeName.trim() || "Missing recipe name"}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-2xl bg-gray-950/60 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Servings</div>
+                        <div className="mt-1 text-sm font-semibold text-white">
+                          {Math.max(1, Number(defaultServings) || 1)}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl bg-gray-950/60 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Ingredients</div>
+                        <div className="mt-1 text-sm font-semibold text-white">
+                          {recipeBuilderAnalysis.rows.length}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl bg-gray-950/60 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Steps</div>
+                        <div className="mt-1 text-sm font-semibold text-white">
+                          {steps.filter((step) => step.trim()).length}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl bg-gray-950/60 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Macro Source</div>
+                        <div className="mt-1 text-sm font-semibold text-white">
+                          {recipeBuilderAnalysis.hasCalculatedLinkedMacros ? "Linked ingredients" : "Manual totals"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-blue-500/30 bg-blue-500/10 p-4">
+                      <div className="text-sm font-semibold text-blue-100">Per Serving Preview</div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
+                          <div className="text-xs uppercase tracking-wide text-blue-100/70">Calories</div>
+                          <div className="mt-1 text-lg font-semibold text-white">{livePerServingMacros.calories}</div>
+                        </div>
+                        <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
+                          <div className="text-xs uppercase tracking-wide text-blue-100/70">Protein</div>
+                          <div className="mt-1 text-lg font-semibold text-white">{livePerServingMacros.protein}g</div>
+                        </div>
+                        <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
+                          <div className="text-xs uppercase tracking-wide text-blue-100/70">Carbs</div>
+                          <div className="mt-1 text-lg font-semibold text-white">{livePerServingMacros.carbs}g</div>
+                        </div>
+                        <div className="rounded-2xl bg-gray-950/40 px-3 py-3">
+                          <div className="text-xs uppercase tracking-wide text-blue-100/70">Fat</div>
+                          <div className="mt-1 text-lg font-semibold text-white">{livePerServingMacros.fat}g</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(37,99,235,0.28)] hover:bg-blue-700"
+                >
+                  Save Recipe
+                </button>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              {previousBuilderSection ? (
+                <button
+                  type="button"
+                  onClick={() => setBuilderSection(previousBuilderSection)}
+                  className="flex-1 rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
+                >
+                  Back
+                </button>
+              ) : null}
+              {nextBuilderSection ? (
+                <button
+                  type="button"
+                  onClick={() => setBuilderSection(nextBuilderSection)}
+                  className="flex-1 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Continue
+                </button>
+              ) : null}
+            </div>
           </form>
         )}
       </div>
     </AppShell>
   );
 }
-

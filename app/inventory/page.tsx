@@ -23,7 +23,7 @@ const locationCards = [
 ];
 
 const quickActions = [
-  { title: "Add Item", href: "/inventory/add", description: "Manually add something you have on hand." },
+  { title: "Ingredient Intake", href: "/inventory/add", description: "Create ingredients, scan barcodes, and optionally stock them at home." },
   { title: "Review Suggestions", href: "/inventory/suggestions", description: "Approve or reject proposed inventory changes." },
   { title: "All Items", href: "/inventory/items", description: "Browse everything across your inventory." },
   { title: "Receipt Scans Soon", href: "/inventory/suggestions", description: "Receipt imports will land here for review." },
@@ -139,14 +139,14 @@ export default function InventoryPage() {
 
   if (redirecting || !authChecked) {
     return (
-      <AppShell title="Inventory" subtitle="Track what you have at home">
+      <AppShell title="Inventory" subtitle="Ingredient intake and at-home stock">
         <div className="text-sm text-gray-400">Loading...</div>
       </AppShell>
     );
   }
 
   return (
-    <AppShell title="Inventory" subtitle="Track what you have at home">
+    <AppShell title="Inventory" subtitle="Ingredient intake and at-home stock">
       <div className="space-y-4">
         {error ? (
           <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
@@ -158,7 +158,7 @@ export default function InventoryPage() {
           <div className="text-xs uppercase tracking-[0.18em] text-emerald-300/80">At Home</div>
           <h2 className="mt-2 text-xl font-bold text-white">Inventory overview</h2>
           <p className="mt-2 text-sm text-gray-400">
-            Manual adds, reviewable suggestions, and recent changes all feed into the same inventory system.
+            New foods should enter Macro OS here first. Ingredient intake, barcode saves, reviewable suggestions, and household stock all connect through this system.
           </p>
           <div className="mt-5 grid grid-cols-2 gap-3">
             {stats.map((stat) => (

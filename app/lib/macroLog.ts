@@ -2,6 +2,7 @@ import type { Macros } from "./recipes";
 import {
   createMacroLogEntry,
   deleteMacroLogEntry,
+  deleteMacroLogEntryForPlannedMeal,
   getMacroLogEntries,
 } from "./macro-db";
 
@@ -11,6 +12,35 @@ export type MacroLogEntry = {
   macros: Macros;
   createdAt: string;
 };
+
+const plannerLogStorageKey = "macro-os:planner-log-entries";
+
+function readPlannerLogEntryIds() {
+  if (typeof window === "undefined") return {} as Record<string, string>;
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(plannerLogStorageKey) ?? "{}");
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePlannerLogEntryId(plannedMealId: string, entryId: string | null) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const entries = readPlannerLogEntryIds();
+    if (entryId) {
+      entries[plannedMealId] = entryId;
+    } else {
+      delete entries[plannedMealId];
+    }
+    window.localStorage.setItem(plannerLogStorageKey, JSON.stringify(entries));
+  } catch {
+    // Logging should still work if browser storage is unavailable.
+  }
+}
 
 function mapRowToEntry(row: {
   id: string;
@@ -48,6 +78,23 @@ export async function deleteLogEntry(date: string, id: string) {
   return await loadLog(date);
 }
 
+export async function deleteLogEntryForPlannedMeal(plannedMealId: string) {
+  const fallbackEntryId = readPlannerLogEntryIds()[plannedMealId];
+
+  try {
+    await deleteMacroLogEntryForPlannedMeal(plannedMealId);
+  } catch (error) {
+    if (!fallbackEntryId) throw error;
+  }
+
+  if (fallbackEntryId) {
+    await deleteMacroLogEntry(fallbackEntryId);
+  }
+
+  writePlannerLogEntryId(plannedMealId, null);
+  return await loadLog(todayISO());
+}
+
 export function sumMacros(entries: MacroLogEntry[]): Macros {
   return entries.reduce(
     (acc, e) => ({
@@ -67,7 +114,8 @@ export async function addLogEntry(
     protein: number;
     carbs: number;
     fat: number;
-  }
+  },
+  plannedMealId?: string
 ): Promise<MacroLogEntry> {
   const row = await createMacroLogEntry({
     date_key: todayISO(),
@@ -76,7 +124,12 @@ export async function addLogEntry(
     protein: macros.protein,
     carbs: macros.carbs,
     fat: macros.fat,
+    planned_meal_id: plannedMealId ?? null,
   });
+
+  if (plannedMealId) {
+    writePlannerLogEntryId(plannedMealId, row.id);
+  }
 
   return mapRowToEntry(row);
 }

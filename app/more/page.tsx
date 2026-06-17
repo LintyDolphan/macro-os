@@ -1,79 +1,20 @@
 "use client";
 
-import Link from "next/link";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import AppShell from "../components/AppShell";
 
-const moreLinks = [
-  {
-    href: "/inventory",
-    title: "Inventory",
-    description: "Track pantry, fridge, freezer, and review suggestions.",
-  },
-  {
-    href: "/recipes/admin",
-    title: "Ingredient Admin",
-    description: "Temporary verified-library manager for bulk curation sessions.",
-  },
-  {
-    href: "/scan",
-    title: "Barcode Scanner",
-    description: "Test the shared camera barcode scanner before wiring it into features.",
-  },
-  {
-    href: "/workouts",
-    title: "Workout",
-    description: "Plan, log, and review your training sessions.",
-  },
-  {
-    href: "/calculator",
-    title: "Macro Calculator",
-    description: "Set or recalculate your daily macro targets.",
-  },
-  {
-    href: "/progress",
-    title: "Progress",
-    description: "Review trends and progress views.",
-  },
-  {
-    href: "/settings",
-    title: "Settings",
-    description: "Manage account and app preferences.",
-  },
-  {
-    href: "/settings/household",
-    title: "Household",
-    description: "Create or manage your shared household.",
-  },
-  {
-    href: "/auth",
-    title: "Account",
-    description: "Sign in, create an account, or sign out.",
-  },
-];
-
 export default function MorePage() {
-  return (
-    <AppShell title="More" subtitle="All pages and tools">
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-white">All Pages</h2>
-          <p className="mt-1 text-sm text-gray-400">
-            Extra pages that do not need a permanent bottom-nav slot.
-          </p>
-        </div>
+  const router = useRouter();
 
-        <div className="space-y-3">
-          {moreLinks.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="block rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm transition hover:border-gray-600 hover:bg-gray-700"
-            >
-              <div className="text-sm font-semibold text-white">{item.title}</div>
-              <div className="mt-1 text-sm text-gray-400">{item.description}</div>
-            </Link>
-          ))}
-        </div>
+  useEffect(() => {
+    router.replace("/settings");
+  }, [router]);
+
+  return (
+    <AppShell title="Settings" subtitle="Redirecting to the simplified app structure">
+      <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 text-sm text-gray-400 shadow-sm">
+        Redirecting to Settings...
       </div>
     </AppShell>
   );
