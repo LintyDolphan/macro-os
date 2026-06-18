@@ -25,6 +25,19 @@ const CATEGORY_LABELS: Record<GroceryCategory, string> = {
   other: "Other",
 };
 
+type FoodSuggestion = {
+  sourceName: string;
+  sourceId: string;
+  name: string;
+  brandName?: string | null;
+  foodCategory?: string | null;
+  caloriesPer100g?: number | null;
+  proteinPer100g?: number | null;
+  carbsPer100g?: number | null;
+  fatPer100g?: number | null;
+  matchCount?: number;
+};
+
 const CATEGORY_STYLES: Record<
   GroceryCategory,
   { badge: string; dot: string; heading: string; section: string }
@@ -75,6 +88,84 @@ const CATEGORY_STYLES: Record<
 
 function byName(a: GroceryItem, b: GroceryItem) {
   return a.name.localeCompare(b.name);
+}
+
+function inferGroceryCategory(suggestion: FoodSuggestion): GroceryCategory {
+  const text = `${suggestion.foodCategory ?? ""} ${suggestion.name}`.toLowerCase();
+
+  if (/\b(frozen|ice cream|frozen meals?)\b/.test(text)) return "frozen";
+  if (/\b(dairy|milk|cheese|yogurt|cream|egg|butter)\b/.test(text)) return "dairy";
+  if (/\b(poultry|chicken|turkey|beef|pork|lamb|veal|meat|fish|seafood|salmon|tuna)\b/.test(text)) {
+    return "meat";
+  }
+  if (/\b(vegetable|fruit|produce|lettuce|spinach|apple|banana|berry|tomato|potato)\b/.test(text)) {
+    return "produce";
+  }
+  if (/\b(snack|candy|sweets|chips|cookie|cracker|popcorn)\b/.test(text)) return "snacks";
+  if (/\b(cereal|grain|pasta|rice|bread|bakery|spice|sauce|soup|bean|nut|oil)\b/.test(text)) {
+    return "pantry";
+  }
+
+  return "other";
+}
+
+function formatFoodName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+    .replace(/\bUsda\b/g, "USDA");
+}
+
+function formatMacroPreview(suggestion: FoodSuggestion) {
+  const calories = Math.round(Number(suggestion.caloriesPer100g ?? 0));
+  const protein = Math.round(Number(suggestion.proteinPer100g ?? 0));
+
+  if (calories <= 0 && protein <= 0) return null;
+  return `${calories} cal${protein > 0 ? `, ${protein}g protein` : ""} / 100g`;
+}
+
+function foodGroupKey(suggestion: FoodSuggestion) {
+  return formatFoodName(suggestion.name)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function averageSuggestionValue(suggestions: FoodSuggestion[], field: keyof FoodSuggestion) {
+  const values = suggestions
+    .map((suggestion) => Number(suggestion[field]))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (values.length === 0) return null;
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function summarizeFoodSuggestions(suggestions: FoodSuggestion[]) {
+  const groups = new Map<string, FoodSuggestion[]>();
+
+  for (const suggestion of suggestions) {
+    const key = foodGroupKey(suggestion);
+    const group = groups.get(key) ?? [];
+    group.push(suggestion);
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.entries()).map(([key, group]) => {
+    const first = group[0];
+
+    return {
+      ...first,
+      sourceId: `average-${key}`,
+      name: formatFoodName(first.name),
+      brandName: null,
+      foodCategory: first.foodCategory ?? group.find((suggestion) => suggestion.foodCategory)?.foodCategory,
+      caloriesPer100g: averageSuggestionValue(group, "caloriesPer100g"),
+      proteinPer100g: averageSuggestionValue(group, "proteinPer100g"),
+      carbsPer100g: averageSuggestionValue(group, "carbsPer100g"),
+      fatPer100g: averageSuggestionValue(group, "fatPer100g"),
+      matchCount: group.length,
+    } satisfies FoodSuggestion;
+  });
 }
 
 function GroceryRow({
@@ -163,7 +254,13 @@ export default function GroceryPage() {
   const [purchasedOpen, setPurchasedOpen] = useState(false);
   const [recentPurchase, setRecentPurchase] = useState<GroceryItem | null>(null);
   const [listOptionsOpen, setListOptionsOpen] = useState(false);
+  const [foodSuggestions, setFoodSuggestions] = useState<FoodSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [suggestionsUnavailable, setSuggestionsUnavailable] = useState(false);
   const purchaseUndoTimerRef = useRef<number | null>(null);
+  const suggestionBlurTimerRef = useRef<number | null>(null);
+  const selectedSuggestionNameRef = useRef("");
 
   useEffect(() => {
     async function init() {
@@ -187,8 +284,68 @@ export default function GroceryPage() {
       if (purchaseUndoTimerRef.current !== null) {
         window.clearTimeout(purchaseUndoTimerRef.current);
       }
+      if (suggestionBlurTimerRef.current !== null) {
+        window.clearTimeout(suggestionBlurTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    const query = name.trim();
+
+    if (query.length < 3) {
+      setFoodSuggestions([]);
+      setSuggestionsLoading(false);
+      setSuggestionsUnavailable(false);
+      return;
+    }
+
+    if (query === selectedSuggestionNameRef.current) {
+      setFoodSuggestions([]);
+      setSuggestionsLoading(false);
+      setSuggestionsUnavailable(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setSuggestionsLoading(true);
+
+      try {
+        const response = await fetch(
+          `/api/catalog/foods/search?q=${encodeURIComponent(query)}&limit=8`,
+          { signal: controller.signal }
+        );
+
+        if (!response.ok) {
+          setFoodSuggestions([]);
+          setSuggestionsOpen(false);
+          setSuggestionsUnavailable(true);
+          return;
+        }
+
+        const payload = (await response.json()) as { foods?: FoodSuggestion[] };
+        setFoodSuggestions(payload.foods ?? []);
+        setSuggestionsOpen(true);
+        setSuggestionsUnavailable(false);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (error instanceof Error && error.name !== "AbortError") {
+          console.warn("Food suggestions unavailable:", error.message);
+        }
+        setFoodSuggestions([]);
+        setSuggestionsOpen(false);
+        setSuggestionsUnavailable(true);
+      } finally {
+        if (!controller.signal.aborted) setSuggestionsLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [name]);
 
   const { unbought, bought } = useMemo(() => {
     const unb = items.filter((item) => !item.bought);
@@ -228,6 +385,10 @@ export default function GroceryPage() {
 
   const boughtPercent =
     items.length > 0 ? Math.round((bought.length / items.length) * 100) : 0;
+  const summarizedFoodSuggestions = useMemo(
+    () => summarizeFoodSuggestions(foodSuggestions),
+    [foodSuggestions]
+  );
 
   async function loadForMode(nextMode: GroceryMode) {
     try {
@@ -268,12 +429,35 @@ export default function GroceryPage() {
       setItems(next);
       setName("");
       setQty("");
+      setFoodSuggestions([]);
+      setSuggestionsOpen(false);
+      setSuggestionsUnavailable(false);
     } catch (error) {
       console.error("Failed to add grocery item:", error);
       setActionError(
         error instanceof Error ? error.message : "Failed to add grocery item."
       );
     }
+  }
+
+  function selectFoodSuggestion(suggestion: FoodSuggestion) {
+    const nextName = formatFoodName(suggestion.name);
+    selectedSuggestionNameRef.current = nextName;
+    setName(nextName);
+    setCategory(inferGroceryCategory(suggestion));
+    setFoodSuggestions([]);
+    setSuggestionsOpen(false);
+    setSuggestionsUnavailable(false);
+  }
+
+  function closeSuggestionsSoon() {
+    if (suggestionBlurTimerRef.current !== null) {
+      window.clearTimeout(suggestionBlurTimerRef.current);
+    }
+    suggestionBlurTimerRef.current = window.setTimeout(() => {
+      setSuggestionsOpen(false);
+      suggestionBlurTimerRef.current = null;
+    }, 120);
   }
 
   function clearPurchaseUndo() {
@@ -437,14 +621,75 @@ export default function GroceryPage() {
             </p>
           </div>
 
-          <div className="mt-4 flex gap-2">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Add grocery item..."
-              aria-label="Grocery item name"
-              className="min-w-0 flex-1 rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-            />
+          <div className="relative mt-4 flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <input
+                value={name}
+                onChange={(e) => {
+                  selectedSuggestionNameRef.current = "";
+                  setName(e.target.value);
+                  setSuggestionsOpen(true);
+                }}
+                onFocus={() => {
+                  if (summarizedFoodSuggestions.length > 0) setSuggestionsOpen(true);
+                }}
+                onBlur={closeSuggestionsSoon}
+                placeholder="Add grocery item..."
+                aria-label="Grocery item name"
+                autoComplete="off"
+                className="w-full rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              />
+
+              {suggestionsOpen && (summarizedFoodSuggestions.length > 0 || suggestionsLoading) ? (
+                <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-40 overflow-hidden rounded-3xl border border-gray-700 bg-gray-950 shadow-2xl">
+                  <div className="border-b border-gray-800 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+                    {suggestionsLoading ? "Searching USDA foods..." : "Average Food Suggestions"}
+                  </div>
+                  {summarizedFoodSuggestions.length > 0 ? (
+                    <div className="max-h-72 overflow-y-auto p-2">
+                      {summarizedFoodSuggestions.map((suggestion) => {
+                        const suggestionCategory = inferGroceryCategory(suggestion);
+                        const categoryStyle = CATEGORY_STYLES[suggestionCategory];
+                        const macroPreview = formatMacroPreview(suggestion);
+
+                        return (
+                          <button
+                            key={`${suggestion.sourceName}-${suggestion.sourceId}`}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => selectFoodSuggestion(suggestion)}
+                            className="w-full rounded-2xl px-3 py-2.5 text-left transition hover:bg-gray-800"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="line-clamp-2 text-sm font-semibold text-white">
+                                  {formatFoodName(suggestion.name)}
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                                  <span>
+                                    {suggestion.matchCount && suggestion.matchCount > 1
+                                      ? `Average of ${suggestion.matchCount} USDA matches`
+                                      : "USDA estimate"}
+                                  </span>
+                                  {macroPreview ? <span>{macroPreview}</span> : null}
+                                </div>
+                              </div>
+                              <span
+                                className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${categoryStyle.badge}`}
+                              >
+                                {CATEGORY_LABELS[suggestionCategory]}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-3 text-xs text-gray-400">Looking for matches...</div>
+                  )}
+                </div>
+              ) : null}
+            </div>
             <button
               type="submit"
               disabled={!name.trim()}
@@ -453,6 +698,11 @@ export default function GroceryPage() {
               Add
             </button>
           </div>
+          {suggestionsUnavailable ? (
+            <div className="mt-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
+              Food suggestions are unavailable right now. You can still add this item manually.
+            </div>
+          ) : null}
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {Object.entries(CATEGORY_LABELS).map(([key, label]) => {

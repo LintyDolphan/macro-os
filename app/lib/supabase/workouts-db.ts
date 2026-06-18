@@ -18,6 +18,16 @@ export type ExerciseRecord = {
   movement_pattern: string | null
   logging_style: ExerciseLoggingStyle
   instructions: string | null
+  aliases: string[]
+  description: string | null
+  difficulty: "beginner" | "intermediate" | "advanced" | "expert" | null
+  exercise_type: string | null
+  target_muscles: string[]
+  safety_cues: string[]
+  source_name: string | null
+  external_source_id: string | null
+  source_url: string | null
+  verification_status: "verified" | "custom" | "pending"
   is_public: boolean
   created_by_user_id: string | null
 }
@@ -32,6 +42,16 @@ export type ExerciseInsert = {
   movement_pattern?: string | null
   logging_style: ExerciseLoggingStyle
   instructions?: string | null
+  aliases?: string[]
+  description?: string | null
+  difficulty?: "beginner" | "intermediate" | "advanced" | "expert" | null
+  exercise_type?: string | null
+  target_muscles?: string[]
+  safety_cues?: string[]
+  source_name?: string | null
+  external_source_id?: string | null
+  source_url?: string | null
+  verification_status?: "verified" | "custom" | "pending"
   is_public?: boolean
 }
 
@@ -461,6 +481,41 @@ export async function replaceWorkoutTemplateExercises(
     )
 
   if (insertError) throw insertError
+}
+
+export async function appendWorkoutTemplateExercise(
+  templateId: string,
+  exercise: Omit<WorkoutTemplateExerciseInsert, "sort_order">
+) {
+  const { count, error: countError } = await supabase
+    .from("workout_template_exercises")
+    .select("id", { count: "exact", head: true })
+    .eq("template_id", templateId)
+
+  if (countError) throw countError
+
+  const { data, error } = await supabase
+    .from("workout_template_exercises")
+    .insert({
+      template_id: templateId,
+      exercise_id: exercise.exercise_id,
+      sort_order: count ?? 0,
+      target_sets: normalizePositiveNumber(exercise.target_sets),
+      target_reps: normalizePositiveNumber(exercise.target_reps),
+      target_reps_min: normalizePositiveNumber(exercise.target_reps_min),
+      target_reps_max: normalizePositiveNumber(exercise.target_reps_max),
+      target_weight: normalizePositiveNumber(exercise.target_weight),
+      target_duration_sec: normalizePositiveNumber(exercise.target_duration_sec),
+      target_distance: normalizePositiveNumber(exercise.target_distance),
+      target_distance_unit: exercise.target_distance_unit ?? null,
+      target_rest_sec: normalizePositiveNumber(exercise.target_rest_sec),
+      notes: normalizeOptionalString(exercise.notes),
+    })
+    .select(TEMPLATE_EXERCISE_SELECT)
+    .single()
+
+  if (error) throw error
+  return data as WorkoutTemplateExerciseRecord
 }
 
 export async function deleteWorkoutTemplate(templateId: string, userId: string) {

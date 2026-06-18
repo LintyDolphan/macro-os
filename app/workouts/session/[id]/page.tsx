@@ -20,6 +20,7 @@ import {
   type WorkoutSessionExerciseRecord,
   type WorkoutSessionRecord,
   type WorkoutSetRecord,
+  type WorkoutTemplateExerciseRecord,
 } from "../../../lib/supabase/workouts-db";
 
 type LocalSet = {
@@ -41,10 +42,19 @@ type SessionExerciseState = {
   exercise: ExerciseRecord | null;
   planned_sets: number | null;
   planned_reps: number | null;
+  planned_weight: number | null;
   planned_duration_sec: number | null;
   planned_distance: number | null;
   notes: string;
   sets: LocalSet[];
+};
+
+type SetDefaults = {
+  reps?: number | null;
+  weight?: number | null;
+  duration_sec?: number | null;
+  distance?: number | null;
+  distance_unit?: DistanceUnit | null;
 };
 
 function normalizeExerciseRecord(exercise: WorkoutSessionExerciseRecord["exercise"]) {
@@ -56,36 +66,65 @@ function toInputValue(value: number | null) {
   return value == null ? "" : String(value);
 }
 
-function createEmptySet(setNumber: number): LocalSet {
+function stepInputValue(value: string, step: number, direction: 1 | -1) {
+  const numericValue = Number(value);
+  const baseValue = Number.isFinite(numericValue) ? numericValue : 0;
+  const nextValue = Math.max(0, baseValue + step * direction);
+
+  return nextValue === 0 ? "" : String(nextValue);
+}
+
+function resolveTemplateRepsTarget(exercise?: WorkoutTemplateExerciseRecord | null) {
+  return (
+    exercise?.target_reps ??
+    exercise?.target_reps_max ??
+    exercise?.target_reps_min ??
+    null
+  );
+}
+
+function buildSetDefaultsFromTemplate(
+  exercise?: WorkoutTemplateExerciseRecord | null
+): SetDefaults {
+  return {
+    reps: resolveTemplateRepsTarget(exercise),
+    weight: exercise?.target_weight ?? null,
+    duration_sec: exercise?.target_duration_sec ?? null,
+    distance: exercise?.target_distance ?? null,
+    distance_unit: exercise?.target_distance_unit ?? null,
+  };
+}
+
+function createEmptySet(setNumber: number, defaults: SetDefaults = {}): LocalSet {
   return {
     set_number: setNumber,
-    reps: "",
-    weight: "",
-    duration_sec: "",
-    distance: "",
-    distance_unit: "",
+    reps: toInputValue(defaults.reps ?? null),
+    weight: toInputValue(defaults.weight ?? null),
+    duration_sec: toInputValue(defaults.duration_sec ?? null),
+    distance: toInputValue(defaults.distance ?? null),
+    distance_unit: defaults.distance_unit ?? "",
     completed: false,
     notes: "",
   };
 }
 
-function mapWorkoutSetToLocal(set: WorkoutSetRecord): LocalSet {
+function mapWorkoutSetToLocal(set: WorkoutSetRecord, defaults: SetDefaults = {}): LocalSet {
   return {
     id: set.id,
     set_number: set.set_number,
-    reps: toInputValue(set.reps),
-    weight: toInputValue(set.weight),
-    duration_sec: toInputValue(set.duration_sec),
-    distance: toInputValue(set.distance),
-    distance_unit: set.distance_unit ?? "",
+    reps: toInputValue(set.reps ?? defaults.reps ?? null),
+    weight: toInputValue(set.weight ?? defaults.weight ?? null),
+    duration_sec: toInputValue(set.duration_sec ?? defaults.duration_sec ?? null),
+    distance: toInputValue(set.distance ?? defaults.distance ?? null),
+    distance_unit: set.distance_unit ?? defaults.distance_unit ?? "",
     completed: set.completed,
     notes: set.notes ?? "",
   };
 }
 
-function createInitialSets(targetSets: number | null) {
+function createInitialSets(targetSets: number | null, defaults: SetDefaults = {}) {
   const count = Math.max(1, targetSets ?? 0);
-  return Array.from({ length: count }, (_, index) => createEmptySet(index + 1));
+  return Array.from({ length: count }, (_, index) => createEmptySet(index + 1, defaults));
 }
 
 function formatElapsed(session: WorkoutSessionRecord) {
@@ -108,11 +147,26 @@ function formatExerciseProgress(exercises: SessionExerciseState[]) {
   return `${completed} of ${exercises.length} exercises done`;
 }
 
+function getCompletionStats(exercises: SessionExerciseState[]) {
+  const totalSets = exercises.reduce((total, exercise) => total + exercise.sets.length, 0);
+  const completedSets = exercises.reduce(
+    (total, exercise) => total + exercise.sets.filter((set) => set.completed).length,
+    0
+  );
+
+  return {
+    completedSets,
+    totalSets,
+    percent: totalSets > 0 ? Math.round((completedSets / totalSets) * 100) : 0,
+  };
+}
+
 function buildPlanSummary(exercise: SessionExerciseState) {
   const parts: string[] = [];
 
   if (exercise.planned_sets) parts.push(`${exercise.planned_sets} sets`);
   if (exercise.planned_reps) parts.push(`${exercise.planned_reps} reps`);
+  if (exercise.planned_weight) parts.push(`${exercise.planned_weight} lbs`);
   if (exercise.planned_duration_sec) {
     parts.push(`${Math.max(1, Math.round(exercise.planned_duration_sec / 60))} min`);
   }
@@ -121,11 +175,25 @@ function buildPlanSummary(exercise: SessionExerciseState) {
   return parts.length > 0 ? parts.join(" - ") : "No target plan set";
 }
 
+function buildSetTargetSummary(exercise: SessionExerciseState) {
+  const parts: string[] = [];
+
+  if (exercise.planned_weight) parts.push(`${exercise.planned_weight} lbs`);
+  if (exercise.planned_reps) parts.push(`${exercise.planned_reps} reps`);
+  if (exercise.planned_duration_sec) parts.push(`${exercise.planned_duration_sec}s`);
+  if (exercise.planned_distance) parts.push(`${exercise.planned_distance} distance`);
+
+  return parts.length > 0 ? `Target: ${parts.join(" - ")}` : "No set target";
+}
+
 function buildSessionExerciseState(
   sessionExercise: WorkoutSessionExerciseRecord,
-  sets: WorkoutSetRecord[]
+  sets: WorkoutSetRecord[],
+  templateExercise?: WorkoutTemplateExerciseRecord | null
 ): SessionExerciseState {
   const exercise = normalizeExerciseRecord(sessionExercise.exercise);
+  const defaults = buildSetDefaultsFromTemplate(templateExercise);
+  const plannedReps = sessionExercise.planned_reps ?? defaults.reps ?? null;
 
   return {
     sessionExerciseId: sessionExercise.id,
@@ -133,11 +201,24 @@ function buildSessionExerciseState(
     exerciseId: sessionExercise.exercise_id,
     exercise,
     planned_sets: sessionExercise.planned_sets,
-    planned_reps: sessionExercise.planned_reps,
-    planned_duration_sec: sessionExercise.planned_duration_sec,
-    planned_distance: sessionExercise.planned_distance,
+    planned_reps: plannedReps,
+    planned_weight: defaults.weight ?? null,
+    planned_duration_sec: sessionExercise.planned_duration_sec ?? defaults.duration_sec ?? null,
+    planned_distance: sessionExercise.planned_distance ?? defaults.distance ?? null,
     notes: sessionExercise.notes ?? "",
-    sets: sets.length > 0 ? sets.map(mapWorkoutSetToLocal) : createInitialSets(sessionExercise.planned_sets),
+    sets:
+      sets.length > 0
+        ? sets.map((set) => mapWorkoutSetToLocal(set, { ...defaults, reps: plannedReps }))
+        : createInitialSets(sessionExercise.planned_sets, { ...defaults, reps: plannedReps }),
+  };
+}
+
+function buildSetDefaultsFromSessionExercise(exercise: SessionExerciseState): SetDefaults {
+  return {
+    reps: exercise.planned_reps,
+    weight: exercise.planned_weight,
+    duration_sec: exercise.planned_duration_sec,
+    distance: exercise.planned_distance,
   };
 }
 
@@ -154,19 +235,6 @@ function setsPayload(sets: LocalSet[]) {
   }));
 }
 
-function renderSetHeaders(loggingStyle: ExerciseRecord["logging_style"] | undefined) {
-  switch (loggingStyle) {
-    case "time":
-      return ["Set", "Time (sec)", "Done"];
-    case "distance_time":
-      return ["Set", "Distance", "Time (sec)", "Done"];
-    case "reps_only":
-      return ["Set", "Reps", "Done"];
-    default:
-      return ["Set", "Weight", "Reps", "Done"];
-  }
-}
-
 export default function WorkoutSessionPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -178,8 +246,6 @@ export default function WorkoutSessionPage() {
   const [session, setSession] = useState<WorkoutSessionRecord | null>(null);
   const [sessionExercises, setSessionExercises] = useState<SessionExerciseState[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
   useEffect(() => {
@@ -231,7 +297,7 @@ export default function WorkoutSessionPage() {
                 template_exercise_id: exercise.id,
                 sort_order: index,
                 planned_sets: exercise.target_sets,
-                planned_reps: exercise.target_reps ?? exercise.target_reps_max,
+                planned_reps: resolveTemplateRepsTarget(exercise),
                 planned_duration_sec: exercise.target_duration_sec,
                 planned_distance: exercise.target_distance,
                 notes: exercise.notes,
@@ -242,8 +308,16 @@ export default function WorkoutSessionPage() {
               createdSessionExercises.map((sessionExercise, index) =>
                 replaceWorkoutSets(
                   sessionExercise.id,
-                  createInitialSets(templateExercises[index]?.target_sets ?? null).map((set) => ({
+                  createInitialSets(
+                    templateExercises[index]?.target_sets ?? null,
+                    buildSetDefaultsFromTemplate(templateExercises[index])
+                  ).map((set) => ({
                     set_number: set.set_number,
+                    reps: set.reps ? Number(set.reps) : null,
+                    weight: set.weight ? Number(set.weight) : null,
+                    duration_sec: set.duration_sec ? Number(set.duration_sec) : null,
+                    distance: set.distance ? Number(set.distance) : null,
+                    distance_unit: set.distance_unit || null,
                     completed: set.completed,
                   }))
                 )
@@ -256,13 +330,25 @@ export default function WorkoutSessionPage() {
         const loadedSets = await Promise.all(
           loadedSessionExercises.map((exercise) => getWorkoutSets(exercise.id))
         );
+        const sessionTemplateExercises = liveSession.template_id
+          ? await getWorkoutTemplateExercises(liveSession.template_id)
+          : [];
+        const templateExerciseById = new Map(
+          sessionTemplateExercises.map((exercise) => [exercise.id, exercise])
+        );
 
         if (!active) return;
 
         setSession(liveSession);
         setSessionExercises(
           loadedSessionExercises.map((exercise, index) =>
-            buildSessionExerciseState(exercise, loadedSets[index] ?? [])
+            buildSessionExerciseState(
+              exercise,
+              loadedSets[index] ?? [],
+              exercise.template_exercise_id
+                ? templateExerciseById.get(exercise.template_exercise_id) ?? null
+                : null
+            )
           )
         );
         setError(null);
@@ -288,6 +374,8 @@ export default function WorkoutSessionPage() {
     return `${formatElapsed(session)} - ${formatExerciseProgress(sessionExercises)}`;
   }, [session, sessionExercises]);
 
+  const completionStats = useMemo(() => getCompletionStats(sessionExercises), [sessionExercises]);
+
   function updateSet(
     sessionExerciseId: string,
     setNumber: number,
@@ -300,9 +388,25 @@ export default function WorkoutSessionPage() {
           ? exercise
           : {
               ...exercise,
-              sets: exercise.sets.map((set) =>
-                set.set_number === setNumber ? { ...set, [field]: value } : set
-              ),
+              sets: exercise.sets.map((set) => {
+                if (set.set_number !== setNumber) return set;
+
+                const defaults = buildSetDefaultsFromSessionExercise(exercise);
+
+                return {
+                  ...set,
+                  ...(field === "completed" && value === true
+                    ? {
+                        reps: set.reps || toInputValue(defaults.reps ?? null),
+                        weight: set.weight || toInputValue(defaults.weight ?? null),
+                        duration_sec:
+                          set.duration_sec || toInputValue(defaults.duration_sec ?? null),
+                        distance: set.distance || toInputValue(defaults.distance ?? null),
+                      }
+                    : null),
+                  [field]: value,
+                };
+              }),
             }
       )
     );
@@ -315,9 +419,99 @@ export default function WorkoutSessionPage() {
           ? exercise
           : {
               ...exercise,
-              sets: [...exercise.sets, createEmptySet(exercise.sets.length + 1)],
+              sets: [
+                ...exercise.sets,
+                createEmptySet(
+                  exercise.sets.length + 1,
+                  buildSetDefaultsFromSessionExercise(exercise)
+                ),
+              ],
             }
       )
+    );
+  }
+
+  function removeSet(sessionExerciseId: string) {
+    setSessionExercises((current) =>
+      current.map((exercise) =>
+        exercise.sessionExerciseId !== sessionExerciseId || exercise.sets.length <= 1
+          ? exercise
+          : {
+              ...exercise,
+              sets: exercise.sets.slice(0, -1),
+            }
+      )
+    );
+  }
+
+  function stepSetValue(
+    sessionExerciseId: string,
+    setNumber: number,
+    field: "reps" | "weight",
+    step: number,
+    direction: 1 | -1
+  ) {
+    setSessionExercises((current) =>
+      current.map((exercise) =>
+        exercise.sessionExerciseId !== sessionExerciseId
+          ? exercise
+          : {
+              ...exercise,
+              sets: exercise.sets.map((set) =>
+                set.set_number !== setNumber
+                  ? set
+                  : {
+                      ...set,
+                      [field]: stepInputValue(set[field], step, direction),
+                    }
+              ),
+            }
+      )
+    );
+  }
+
+  function renderSetStepper(
+    exercise: SessionExerciseState,
+    set: LocalSet,
+    field: "reps" | "weight",
+    label: string,
+    step: number,
+    inputMode: "numeric" | "decimal"
+  ) {
+    return (
+      <div className="min-w-0">
+        <div className="mb-1 text-center text-[9px] font-semibold uppercase tracking-[0.16em] text-gray-500">
+          {label}
+        </div>
+        <div className="grid grid-cols-[1.8rem_minmax(0,1fr)_1.8rem] items-center gap-1">
+          <button
+            type="button"
+            onClick={() => stepSetValue(exercise.sessionExerciseId, set.set_number, field, step, -1)}
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-950 text-sm font-bold text-white transition hover:bg-gray-700"
+            aria-label={`Decrease ${label.toLowerCase()} for set ${set.set_number}`}
+          >
+            -
+          </button>
+          <input
+            value={set[field]}
+            onChange={(event) =>
+              updateSet(exercise.sessionExerciseId, set.set_number, field, event.target.value)
+            }
+            inputMode={inputMode}
+            placeholder="0"
+            className="min-w-0 rounded-xl bg-gray-900/70 px-1 py-1 text-center text-sm font-semibold text-white outline-none placeholder:text-gray-600 focus:bg-gray-900"
+            aria-label={`${label} for set ${set.set_number}`}
+          />
+          <button
+            type="button"
+            onClick={() => stepSetValue(exercise.sessionExerciseId, set.set_number, field, step, 1)}
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-950 text-sm font-bold text-white transition hover:bg-blue-600"
+            aria-label={`Increase ${label.toLowerCase()} for set ${set.set_number}`}
+          >
+            +
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -344,26 +538,9 @@ export default function WorkoutSessionPage() {
     return updatedSession;
   }
 
-  async function handleSaveProgress() {
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      await persistSession();
-      setMessage("Workout progress saved.");
-    } catch (error) {
-      console.error("Failed to save workout progress:", error);
-      setError(error instanceof Error ? error.message : "Workout progress could not be saved.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function handleFinishWorkout() {
     setFinishing(true);
     setError(null);
-    setMessage(null);
 
     try {
       const updatedSession = await persistSession("completed");
@@ -404,48 +581,56 @@ export default function WorkoutSessionPage() {
           </div>
         ) : null}
 
-        {message ? (
-          <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-            {message}
-          </div>
-        ) : null}
-
         <section className="rounded-3xl border border-gray-700 bg-gray-800 p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          <div>
+            <div className="min-w-0">
               <h1 className="text-xl font-bold text-white">{session.name}</h1>
               <p className="mt-1 text-sm text-gray-400">{progressCopy}</p>
             </div>
-            <div className="grid gap-2">
-              <button
-                type="button"
-                onClick={() => void handleSaveProgress()}
-                disabled={saving || finishing}
-                className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="flex min-h-14 flex-col items-center justify-center rounded-2xl bg-gray-900 px-3 py-2 text-center">
+                <div className="text-lg font-bold text-white">{completionStats.percent}%</div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-500">Done</div>
+              </div>
               <button
                 type="button"
                 onClick={() => void handleFinishWorkout()}
-                disabled={saving || finishing}
-                className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={finishing}
+                className="min-h-14 rounded-2xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {finishing ? "Finishing..." : "Finish"}
               </button>
             </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3 text-xs text-gray-400">
+            <span>Set Progress</span>
+            <span>
+              {completionStats.completedSets} of {completionStats.totalSets} complete
+            </span>
+          </div>
+          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-gray-900">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-600 to-emerald-500 transition-all duration-300"
+              style={{ width: `${completionStats.percent}%` }}
+            />
           </div>
         </section>
 
         {sessionExercises.length > 0 ? (
           sessionExercises.map((exercise, index) => {
             const loggingStyle = exercise.exercise?.logging_style;
-            const headers = renderSetHeaders(loggingStyle);
+            const exerciseComplete =
+              exercise.sets.length > 0 && exercise.sets.every((set) => set.completed);
 
             return (
               <section
                 key={exercise.sessionExerciseId}
-                className="rounded-3xl border border-gray-700 bg-gray-800 p-5 shadow-sm"
+                className={`rounded-3xl border p-5 shadow-sm transition ${
+                  exerciseComplete
+                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    : "border-gray-700 bg-gray-800"
+                }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -459,217 +644,151 @@ export default function WorkoutSessionPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 overflow-hidden rounded-2xl border border-gray-700">
-                  <div
-                    className={`grid bg-gray-900 px-3 py-2 text-[11px] uppercase tracking-wide text-gray-500 ${
-                      headers.length === 3 ? "grid-cols-3" : "grid-cols-4"
-                    }`}
-                  >
-                    {headers.map((header) => (
-                      <div key={header}>{header}</div>
-                    ))}
+                <div className="mt-4 rounded-3xl border border-gray-700 bg-gray-900 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Confirm Sets
+                      </div>
+                      <div className="mt-1 text-xs text-gray-400">
+                        {buildSetTargetSummary(exercise)}
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {exercise.sets.filter((set) => set.completed).length}/{exercise.sets.length} done
+                    </div>
                   </div>
 
-                  {exercise.sets.map((set) => (
-                    <div
-                      key={`${exercise.sessionExerciseId}-${set.set_number}`}
-                      className={`grid items-center gap-2 border-t border-gray-700 px-3 py-3 text-sm text-white ${
-                        headers.length === 3 ? "grid-cols-3" : "grid-cols-4"
-                      }`}
-                    >
-                      <div>{set.set_number}</div>
-
-                      {loggingStyle === "time" ? (
-                        <>
-                          <input
-                            value={set.duration_sec}
-                            onChange={(e) =>
-                              updateSet(
-                                exercise.sessionExerciseId,
-                                set.set_number,
-                                "duration_sec",
-                                e.target.value
-                              )
-                            }
-                            inputMode="numeric"
-                            placeholder="0"
-                            className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
-                          />
-                          <label className="flex items-center justify-center">
+                  <div className="mt-4 space-y-2">
+                    {exercise.sets.map((set) => (
+                      <div
+                        key={`${exercise.sessionExerciseId}-${set.set_number}`}
+                        className={`grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2 rounded-2xl border p-2 ${
+                          set.completed
+                            ? "border-emerald-500/40 bg-emerald-500/10"
+                            : "border-gray-700 bg-gray-800"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          {loggingStyle === "time" ? (
                             <input
-                              type="checkbox"
-                              checked={set.completed}
+                              value={set.duration_sec}
                               onChange={(e) =>
                                 updateSet(
                                   exercise.sessionExerciseId,
                                   set.set_number,
-                                  "completed",
-                                  e.target.checked
-                                )
-                              }
-                              className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-blue-500"
-                            />
-                          </label>
-                        </>
-                      ) : loggingStyle === "distance_time" ? (
-                        <>
-                          <div className="flex gap-2">
-                            <input
-                              value={set.distance}
-                              onChange={(e) =>
-                                updateSet(
-                                  exercise.sessionExerciseId,
-                                  set.set_number,
-                                  "distance",
+                                  "duration_sec",
                                   e.target.value
                                 )
                               }
-                              inputMode="decimal"
-                              placeholder="0"
-                              className="min-w-0 flex-1 rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
+                              inputMode="numeric"
+                              placeholder="Seconds"
+                              className="w-full rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
                             />
-                            <select
-                              value={set.distance_unit}
-                              onChange={(e) =>
-                                updateSet(
-                                  exercise.sessionExerciseId,
-                                  set.set_number,
-                                  "distance_unit",
-                                  e.target.value as DistanceUnit | ""
-                                )
-                              }
-                              className="w-20 rounded-xl border border-gray-700 bg-gray-900 px-2 py-2 text-sm text-white"
-                            >
-                              <option value="">Unit</option>
-                              <option value="km">km</option>
-                              <option value="mi">mi</option>
-                              <option value="m">m</option>
-                            </select>
-                          </div>
-                          <input
-                            value={set.duration_sec}
-                            onChange={(e) =>
-                              updateSet(
-                                exercise.sessionExerciseId,
-                                set.set_number,
-                                "duration_sec",
-                                e.target.value
-                              )
-                            }
-                            inputMode="numeric"
-                            placeholder="0"
-                            className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
-                          />
-                          <label className="flex items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={set.completed}
-                              onChange={(e) =>
-                                updateSet(
-                                  exercise.sessionExerciseId,
-                                  set.set_number,
-                                  "completed",
-                                  e.target.checked
-                                )
-                              }
-                              className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-blue-500"
-                            />
-                          </label>
-                        </>
-                      ) : loggingStyle === "reps_only" ? (
-                        <>
-                          <input
-                            value={set.reps}
-                            onChange={(e) =>
-                              updateSet(
-                                exercise.sessionExerciseId,
-                                set.set_number,
-                                "reps",
-                                e.target.value
-                              )
-                            }
-                            inputMode="numeric"
-                            placeholder="0"
-                            className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
-                          />
-                          <label className="flex items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={set.completed}
-                              onChange={(e) =>
-                                updateSet(
-                                  exercise.sessionExerciseId,
-                                  set.set_number,
-                                  "completed",
-                                  e.target.checked
-                                )
-                              }
-                              className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-blue-500"
-                            />
-                          </label>
-                        </>
-                      ) : (
-                        <>
-                          <input
-                            value={set.weight}
-                            onChange={(e) =>
-                              updateSet(
-                                exercise.sessionExerciseId,
-                                set.set_number,
-                                "weight",
-                                e.target.value
-                              )
-                            }
-                            inputMode="decimal"
-                            placeholder="0"
-                            className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
-                          />
-                          <input
-                            value={set.reps}
-                            onChange={(e) =>
-                              updateSet(
-                                exercise.sessionExerciseId,
-                                set.set_number,
-                                "reps",
-                                e.target.value
-                              )
-                            }
-                            inputMode="numeric"
-                            placeholder="0"
-                            className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
-                          />
-                          <label className="flex items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={set.completed}
-                              onChange={(e) =>
-                                updateSet(
-                                  exercise.sessionExerciseId,
-                                  set.set_number,
-                                  "completed",
-                                  e.target.checked
-                                )
-                              }
-                              className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-blue-500"
-                            />
-                          </label>
-                        </>
-                      )}
-                    </div>
-                  ))}
+                          ) : loggingStyle === "distance_time" ? (
+                            <div className="grid grid-cols-[minmax(0,1fr)_5rem_minmax(0,1fr)] gap-2">
+                              <input
+                                value={set.distance}
+                                onChange={(e) =>
+                                  updateSet(
+                                    exercise.sessionExerciseId,
+                                    set.set_number,
+                                    "distance",
+                                    e.target.value
+                                  )
+                                }
+                                inputMode="decimal"
+                                placeholder="Distance"
+                                className="min-w-0 rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
+                              />
+                              <select
+                                value={set.distance_unit}
+                                onChange={(e) =>
+                                  updateSet(
+                                    exercise.sessionExerciseId,
+                                    set.set_number,
+                                    "distance_unit",
+                                    e.target.value as DistanceUnit | ""
+                                  )
+                                }
+                                className="rounded-xl border border-gray-700 bg-gray-900 px-2 py-2 text-sm text-white"
+                              >
+                                <option value="">Unit</option>
+                                <option value="km">km</option>
+                                <option value="mi">mi</option>
+                                <option value="m">m</option>
+                              </select>
+                              <input
+                                value={set.duration_sec}
+                                onChange={(e) =>
+                                  updateSet(
+                                    exercise.sessionExerciseId,
+                                    set.set_number,
+                                    "duration_sec",
+                                    e.target.value
+                                  )
+                                }
+                                inputMode="numeric"
+                                placeholder="Seconds"
+                                className="min-w-0 rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-500"
+                              />
+                            </div>
+                          ) : loggingStyle === "reps_only" ? (
+                            <div>
+                              {renderSetStepper(exercise, set, "reps", "Reps", 1, "numeric")}
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-2">
+                              {renderSetStepper(exercise, set, "weight", "Weight", 5, "decimal")}
+                              {renderSetStepper(exercise, set, "reps", "Reps", 1, "numeric")}
+                            </div>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateSet(
+                              exercise.sessionExerciseId,
+                              set.set_number,
+                              "completed",
+                              !set.completed
+                            )
+                          }
+                          className={`h-10 w-10 rounded-full text-lg font-bold transition ${
+                            set.completed
+                              ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
+                              : "bg-red-500/15 text-red-200 hover:bg-red-500/25"
+                          }`}
+                          aria-label={`${set.completed ? "Unconfirm" : "Confirm"} set ${set.set_number}`}
+                        >
+                          {set.completed ? "✓" : "×"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => addSet(exercise.sessionExerciseId)}
+                      className="rounded-2xl bg-gray-800 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
+                    >
+                      Add Set
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeSet(exercise.sessionExerciseId)}
+                      disabled={exercise.sets.length <= 1}
+                      className="rounded-2xl bg-gray-800 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Remove Set
+                    </button>
+                  </div>
                 </div>
 
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => addSet(exercise.sessionExerciseId)}
-                    className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-gray-700"
-                  >
-                    Add Set
-                  </button>
-                  <div className="flex-1 rounded-2xl bg-gray-900 px-4 py-3 text-sm text-gray-400">
-                    {exercise.notes || "No notes for this exercise yet."}
-                  </div>
+                <div className="mt-4 rounded-2xl bg-gray-900 px-4 py-3 text-sm text-gray-400">
+                  {exercise.notes || "No notes for this exercise yet."}
                 </div>
               </section>
             );

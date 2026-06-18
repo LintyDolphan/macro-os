@@ -28,6 +28,7 @@ import {
   type WorkoutSessionRecord,
   type WorkoutTemplateRecord,
 } from "./lib/supabase/workouts-db";
+import { getUserProfile, type UserProfileRow } from "./lib/user-profile-db";
 
 type RecentMeal = {
   id: string;
@@ -114,6 +115,50 @@ function DashboardCard({
         {subtitle ? <p className="mt-1 text-sm text-gray-400">{subtitle}</p> : null}
       </div>
       {children}
+    </section>
+  );
+}
+
+function OnboardingPrompt({ profile }: { profile: UserProfileRow | null }) {
+  const hasStarted = Boolean(profile);
+
+  return (
+    <section className="overflow-hidden rounded-3xl border border-blue-400/30 bg-gradient-to-br from-blue-600/25 via-gray-800 to-emerald-500/15 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">
+        Personal Setup
+      </div>
+      <h2 className="mt-2 text-xl font-bold text-white">
+        {hasStarted ? "Finish your setup" : "Set up your beta profile"}
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-blue-50/80">
+        Add your goals, body stats, food preferences, and training access so Macro OS can start
+        shaping meal, grocery, workout, and budget suggestions around you.
+      </p>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
+        <div className="rounded-2xl bg-gray-950/45 px-2 py-3 text-gray-200">
+          Macro Targets
+        </div>
+        <div className="rounded-2xl bg-gray-950/45 px-2 py-3 text-gray-200">
+          Meal Ideas
+        </div>
+        <div className="rounded-2xl bg-gray-950/45 px-2 py-3 text-gray-200">
+          Workout Fit
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-[1.5fr_1fr] gap-2">
+        <Link
+          href="/onboarding"
+          className="rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-blue-500"
+        >
+          {hasStarted ? "Continue Setup" : "Start Setup"}
+        </Link>
+        <Link
+          href="/macros"
+          className="rounded-2xl bg-gray-950/60 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-gray-900"
+        >
+          Explore App
+        </Link>
+      </div>
     </section>
   );
 }
@@ -717,6 +762,7 @@ export default function Dashboard() {
   });
   const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplateRecord[]>([]);
   const [workoutSessions, setWorkoutSessions] = useState<WorkoutSessionRecord[]>([]);
+  const [onboardingProfile, setOnboardingProfile] = useState<UserProfileRow | null>(null);
   const [guidanceMessage, setGuidanceMessage] = useState<string | null>(null);
   const [guidanceBusyId, setGuidanceBusyId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -746,12 +792,20 @@ export default function Dashboard() {
       }
 
       try {
-        const [loadedCurrent, loadedHistory, todayEntries, loadedPlannedMeals, loadedRecipes] = await Promise.all([
+        const [
+          loadedCurrent,
+          loadedHistory,
+          todayEntries,
+          loadedPlannedMeals,
+          loadedRecipes,
+          loadedProfile,
+        ] = await Promise.all([
           loadCurrent(),
           loadHistory(),
           loadLog(todayISO()),
           getPlannedMeals(),
           loadRecipes(),
+          getUserProfile(user.id),
         ]);
 
         if (!active) return;
@@ -761,6 +815,7 @@ export default function Dashboard() {
         setTodayTotals(sumMacros(todayEntries));
         setPlannedMeals(loadedPlannedMeals);
         setRecipes([...TEMPLATE_RECIPES, ...loadedRecipes]);
+        setOnboardingProfile(loadedProfile);
         setRecentMeals(
           todayEntries.slice(0, 3).map((entry) => ({
             id: entry.id,
@@ -932,6 +987,10 @@ export default function Dashboard() {
   return (
     <AppShell title="Dashboard" subtitle="Your daily check-in and next actions">
       <div className="space-y-4">
+        {!onboardingProfile?.onboarding_completed ? (
+          <OnboardingPrompt profile={onboardingProfile} />
+        ) : null}
+
         <DashboardCard title="At A Glance" subtitle="The next things worth acting on today.">
           <div className="space-y-3">
             <NextActionCard

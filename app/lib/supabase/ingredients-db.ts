@@ -21,6 +21,17 @@ export type IngredientInsert = {
   visibility?: IngredientVisibility
   verification_status?: IngredientVerificationStatus
   ingredient_type?: IngredientType
+  brand_name?: string | null
+  food_category?: string | null
+  serving_size_g?: number | null
+  serving_label?: string | null
+  package_size?: string | null
+  data_source?: string | null
+  external_source_id?: string | null
+  source_confidence?: number | null
+  dietary_tags?: string[]
+  allergen_tags?: string[]
+  ingredient_notes?: string | null
   source_note?: string | null
 }
 
@@ -45,6 +56,17 @@ export type IngredientRecord = {
   visibility: IngredientVisibility
   verification_status: IngredientVerificationStatus
   ingredient_type: IngredientType
+  brand_name: string | null
+  food_category: string | null
+  serving_size_g: number | null
+  serving_label: string | null
+  package_size: string | null
+  data_source: string | null
+  external_source_id: string | null
+  source_confidence: number | null
+  dietary_tags: string[]
+  allergen_tags: string[]
+  ingredient_notes: string | null
   source_note: string | null
   created_at: string
   updated_at: string
@@ -71,10 +93,27 @@ const INGREDIENT_SELECT = `
   visibility,
   verification_status,
   ingredient_type,
+  brand_name,
+  food_category,
+  serving_size_g,
+  serving_label,
+  package_size,
+  data_source,
+  external_source_id,
+  source_confidence,
+  dietary_tags,
+  allergen_tags,
+  ingredient_notes,
   source_note,
   created_at,
   updated_at
 `
+
+function describeSupabaseError(error: { message?: string; details?: string | null; hint?: string | null; code?: string | null }) {
+  return [error.message, error.details, error.hint, error.code ? `Code: ${error.code}` : null]
+    .filter(Boolean)
+    .join(" ");
+}
 
 function normalizeNumber(value: unknown): number {
   const n = Number(value)
@@ -101,6 +140,49 @@ function validateIngredientInput(input: IngredientInsert) {
     if (value != null && Number(value) < 0) {
       throw new Error("Macro values cannot be negative")
     }
+  }
+}
+
+function missingSchemaColumn(error: { code?: string | null; message?: string }) {
+  return error.code === "PGRST204" || /schema cache|column .*not found|could not find .* column/i.test(error.message ?? "")
+}
+
+function buildCoreIngredientPayload(userId: string, input: IngredientInsert) {
+  return {
+    user_id: userId,
+    name: input.name.trim(),
+    reference_amount_g: normalizeNumber(input.reference_amount_g),
+    reference_calories: normalizeNumber(input.reference_calories),
+    reference_protein_g: normalizeNumber(input.reference_protein_g),
+    reference_carbs_g: normalizeNumber(input.reference_carbs_g),
+    reference_fat_g: normalizeNumber(input.reference_fat_g),
+    cup_g: input.cup_g == null ? null : normalizeNumber(input.cup_g),
+    tbsp_g: input.tbsp_g == null ? null : normalizeNumber(input.tbsp_g),
+    tsp_g: input.tsp_g == null ? null : normalizeNumber(input.tsp_g),
+    piece_g: input.piece_g == null ? null : normalizeNumber(input.piece_g),
+    piece_label: input.piece_label?.trim() || null,
+    visibility: input.visibility ?? "private",
+    verification_status: input.verification_status ?? "custom",
+    source_note: input.source_note?.trim() || null,
+  }
+}
+
+function buildEnrichedIngredientPayload(userId: string, input: IngredientInsert) {
+  return {
+    ...buildCoreIngredientPayload(userId, input),
+    ingredient_type: input.ingredient_type ?? "raw",
+    brand_name: input.brand_name?.trim() || null,
+    food_category: input.food_category?.trim() || null,
+    serving_size_g: input.serving_size_g == null ? null : normalizeNumber(input.serving_size_g),
+    serving_label: input.serving_label?.trim() || null,
+    package_size: input.package_size?.trim() || null,
+    data_source: input.data_source?.trim() || null,
+    external_source_id: input.external_source_id?.trim() || null,
+    source_confidence:
+      input.source_confidence == null ? null : normalizeNumber(input.source_confidence),
+    dietary_tags: input.dietary_tags ?? [],
+    allergen_tags: input.allergen_tags ?? [],
+    ingredient_notes: input.ingredient_notes?.trim() || null,
   }
 }
 
@@ -183,28 +265,74 @@ export async function createIngredient(userId: string, input: IngredientInsert) 
 
   const { data, error } = await supabase
     .from("ingredients")
-    .insert({
-      user_id: userId,
-      name: input.name.trim(),
-      reference_amount_g: normalizeNumber(input.reference_amount_g),
-      reference_calories: normalizeNumber(input.reference_calories),
-      reference_protein_g: normalizeNumber(input.reference_protein_g),
-      reference_carbs_g: normalizeNumber(input.reference_carbs_g),
-      reference_fat_g: normalizeNumber(input.reference_fat_g),
-      cup_g: input.cup_g == null ? null : normalizeNumber(input.cup_g),
-      tbsp_g: input.tbsp_g == null ? null : normalizeNumber(input.tbsp_g),
-      tsp_g: input.tsp_g == null ? null : normalizeNumber(input.tsp_g),
-      piece_g: input.piece_g == null ? null : normalizeNumber(input.piece_g),
-      piece_label: input.piece_label?.trim() || null,
-      visibility: input.visibility ?? "private",
-      verification_status: input.verification_status ?? "custom",
-      ingredient_type: input.ingredient_type ?? "raw",
-      source_note: input.source_note?.trim() || null,
-    })
+    .insert(buildEnrichedIngredientPayload(userId, input))
     .select(INGREDIENT_SELECT)
     .single()
 
-  if (error) throw error
+  if (error && missingSchemaColumn(error)) {
+    const fallbackSelect = INGREDIENT_SELECT
+      .split("\n")
+      .filter(
+        (line) =>
+          ![
+            "brand_name,",
+            "ingredient_type,",
+            "food_category,",
+            "serving_size_g,",
+            "serving_label,",
+            "package_size,",
+            "data_source,",
+            "external_source_id,",
+            "source_confidence,",
+            "dietary_tags,",
+            "allergen_tags,",
+            "ingredient_notes,",
+          ].includes(line.trim())
+      )
+      .join("\n")
+
+    const fallback = await supabase
+      .from("ingredients")
+      .insert(buildCoreIngredientPayload(userId, input))
+      .select(fallbackSelect)
+      .single()
+
+    if (fallback.error) throw new Error(describeSupabaseError(fallback.error))
+
+    const fallbackRow = fallback.data as unknown as Omit<
+      IngredientRecord,
+      | "ingredient_type"
+      | "brand_name"
+      | "food_category"
+      | "serving_size_g"
+      | "serving_label"
+      | "package_size"
+      | "data_source"
+      | "external_source_id"
+      | "source_confidence"
+      | "dietary_tags"
+      | "allergen_tags"
+      | "ingredient_notes"
+    >
+
+    return {
+      ...fallbackRow,
+      ingredient_type: input.ingredient_type ?? "raw",
+      brand_name: null,
+      food_category: null,
+      serving_size_g: null,
+      serving_label: null,
+      package_size: null,
+      data_source: null,
+      external_source_id: null,
+      source_confidence: null,
+      dietary_tags: [],
+      allergen_tags: [],
+      ingredient_notes: null,
+    } as IngredientRecord
+  }
+
+  if (error) throw new Error(describeSupabaseError(error))
   return data as IngredientRecord
 }
 
@@ -257,6 +385,18 @@ export async function updateIngredient(
       visibility: input.visibility ?? "private",
       verification_status: input.verification_status ?? "custom",
       ingredient_type: input.ingredient_type ?? "raw",
+      brand_name: input.brand_name?.trim() || null,
+      food_category: input.food_category?.trim() || null,
+      serving_size_g: input.serving_size_g == null ? null : normalizeNumber(input.serving_size_g),
+      serving_label: input.serving_label?.trim() || null,
+      package_size: input.package_size?.trim() || null,
+      data_source: input.data_source?.trim() || null,
+      external_source_id: input.external_source_id?.trim() || null,
+      source_confidence:
+        input.source_confidence == null ? null : normalizeNumber(input.source_confidence),
+      dietary_tags: input.dietary_tags ?? [],
+      allergen_tags: input.allergen_tags ?? [],
+      ingredient_notes: input.ingredient_notes?.trim() || null,
       source_note: input.source_note?.trim() || null,
     })
     .eq("id", ingredientId)
@@ -312,6 +452,18 @@ export async function updateVerifiedIngredientForAdmin(
       visibility: "public",
       verification_status: "verified",
       ingredient_type: input.ingredient_type ?? "raw",
+      brand_name: input.brand_name?.trim() || null,
+      food_category: input.food_category?.trim() || null,
+      serving_size_g: input.serving_size_g == null ? null : normalizeNumber(input.serving_size_g),
+      serving_label: input.serving_label?.trim() || null,
+      package_size: input.package_size?.trim() || null,
+      data_source: input.data_source?.trim() || null,
+      external_source_id: input.external_source_id?.trim() || null,
+      source_confidence:
+        input.source_confidence == null ? null : normalizeNumber(input.source_confidence),
+      dietary_tags: input.dietary_tags ?? [],
+      allergen_tags: input.allergen_tags ?? [],
+      ingredient_notes: input.ingredient_notes?.trim() || null,
       source_note: input.source_note?.trim() || null,
     })
     .eq("id", ingredientId)

@@ -97,6 +97,21 @@ export default function SettingsPage() {
           </button>
         </div>
 
+        <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 shadow-sm">
+          <h2 className="text-lg font-semibold text-white">Personal Setup</h2>
+          <p className="mt-2 text-sm text-blue-100/80">
+            Update the profile Macro OS uses for starter macro targets, meal planning context,
+            workout preferences, and future grocery recommendations.
+          </p>
+
+          <Link
+            href="/onboarding"
+            className="mt-3 block rounded-xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Open Personal Setup
+          </Link>
+        </div>
+
         <div className="rounded-2xl border border-gray-700 bg-gray-800 p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-white">Household</h2>
           <p className="mt-2 text-sm text-gray-400">

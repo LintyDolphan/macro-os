@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import AppShell from "../../../components/AppShell";
 import {
+  appendWorkoutTemplateExercise,
   createWorkoutTemplate,
   deleteWorkoutTemplate,
   getCurrentUser,
@@ -35,10 +36,41 @@ type BuilderExercise = {
   notes: string;
 };
 
+type BuilderNumberField =
+  | "target_sets"
+  | "target_reps_min"
+  | "target_reps_max"
+  | "target_weight"
+  | "target_duration_sec"
+  | "target_distance"
+  | "target_rest_sec";
+
 const distanceUnitOptions: Array<DistanceUnit | ""> = ["", "km", "mi", "m"];
+
+const numberFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+});
 
 function toInputValue(value: number | null) {
   return value == null ? "" : String(value);
+}
+
+function stepInputValue(value: string, step: number, direction: 1 | -1) {
+  const numericValue = Number(value);
+  const baseValue = Number.isFinite(numericValue) ? numericValue : 0;
+  const nextValue = Math.max(0, baseValue + step * direction);
+  if (nextValue === 0) return "";
+  return numberFormatter.format(nextValue);
+}
+
+function getStepperBaseValue(exercise: BuilderExercise, field: BuilderNumberField) {
+  const value = String(exercise[field] ?? "");
+
+  if (field === "target_reps_max" && !value && exercise.target_reps_min) {
+    return exercise.target_reps_min;
+  }
+
+  return value;
 }
 
 function createBuilderExercise(
@@ -76,19 +108,23 @@ function mapTemplateExerciseToBuilder(exercise: WorkoutTemplateExerciseRecord): 
   });
 }
 
-function buildExerciseSummary(exercise: BuilderExercise) {
+function buildExerciseSummary(exercise: BuilderExercise, options: ExerciseRecord[]) {
   const parts: string[] = [];
 
   if (exercise.target_sets) parts.push(`${exercise.target_sets} sets`);
-  if (exercise.target_reps) parts.push(`${exercise.target_reps} reps`);
   if (exercise.target_reps_min && exercise.target_reps_max) {
     parts.push(`${exercise.target_reps_min}-${exercise.target_reps_max} reps`);
+  } else if (exercise.target_reps_min) {
+    parts.push(`${exercise.target_reps_min} reps`);
+  }
+  if (exercise.target_weight) {
+    parts.push(`${exercise.target_weight} lbs`);
   }
   if (exercise.target_duration_sec) {
     const minutes = Math.max(1, Math.round(Number(exercise.target_duration_sec) / 60));
     parts.push(`${minutes} min`);
   }
-  if (exercise.target_distance) {
+  if (usesCardioTargets(exercise.exercise_id, options) && exercise.target_distance) {
     parts.push(`${exercise.target_distance}${exercise.target_distance_unit}`);
   }
   if (exercise.target_rest_sec) {
@@ -98,20 +134,32 @@ function buildExerciseSummary(exercise: BuilderExercise) {
   return parts.length > 0 ? parts.join(" - ") : "Plan details not set yet";
 }
 
-function buildExercisePayload(exercises: BuilderExercise[]): WorkoutTemplateExerciseInsert[] {
+function buildExercisePayload(
+  exercises: BuilderExercise[],
+  options: ExerciseRecord[]
+): WorkoutTemplateExerciseInsert[] {
   return exercises
     .filter((exercise) => exercise.exercise_id)
     .map((exercise, index) => ({
       exercise_id: exercise.exercise_id,
       sort_order: index,
       target_sets: exercise.target_sets ? Number(exercise.target_sets) : null,
-      target_reps: exercise.target_reps ? Number(exercise.target_reps) : null,
+      target_reps: null,
       target_reps_min: exercise.target_reps_min ? Number(exercise.target_reps_min) : null,
-      target_reps_max: exercise.target_reps_max ? Number(exercise.target_reps_max) : null,
+      target_reps_max: exercise.target_reps_max
+        ? Number(exercise.target_reps_max)
+        : exercise.target_reps_min
+          ? Number(exercise.target_reps_min)
+          : null,
       target_weight: exercise.target_weight ? Number(exercise.target_weight) : null,
       target_duration_sec: exercise.target_duration_sec ? Number(exercise.target_duration_sec) : null,
-      target_distance: exercise.target_distance ? Number(exercise.target_distance) : null,
-      target_distance_unit: exercise.target_distance_unit || null,
+      target_distance:
+        usesCardioTargets(exercise.exercise_id, options) && exercise.target_distance
+          ? Number(exercise.target_distance)
+          : null,
+      target_distance_unit: usesCardioTargets(exercise.exercise_id, options)
+        ? exercise.target_distance_unit || null
+        : null,
       target_rest_sec: exercise.target_rest_sec ? Number(exercise.target_rest_sec) : null,
       notes: exercise.notes || null,
     }));
@@ -121,11 +169,26 @@ function selectedExerciseName(exerciseId: string, options: ExerciseRecord[]) {
   return options.find((option) => option.id === exerciseId)?.name ?? "Choose exercise";
 }
 
-export default function WorkoutTemplateDetailPage() {
+function selectedExercise(exerciseId: string, options: ExerciseRecord[]) {
+  return options.find((option) => option.id === exerciseId) ?? null;
+}
+
+function usesCardioTargets(exerciseId: string, options: ExerciseRecord[]) {
+  const exercise = selectedExercise(exerciseId, options);
+  return exercise?.category === "cardio" || exercise?.logging_style === "distance_time";
+}
+
+function WorkoutTemplateDetailPageContent() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const templateId = Array.isArray(params?.id) ? params.id[0] : params?.id;
   const isNewTemplate = templateId === "new";
+  const addExerciseId = searchParams.get("addExerciseId");
+  const scrollTo = searchParams.get("scrollTo");
+  const handledAddExerciseIdRef = useRef<string | null>(null);
+  const exercisesSectionRef = useRef<HTMLElement | null>(null);
+  const actionBarRef = useRef<HTMLDivElement | null>(null);
 
   const [authChecked, setAuthChecked] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
@@ -141,6 +204,8 @@ export default function WorkoutTemplateDetailPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [actionBarDocked, setActionBarDocked] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -218,6 +283,98 @@ export default function WorkoutTemplateDetailPage() {
     };
   }, [isNewTemplate, templateId]);
 
+  useEffect(() => {
+    if (!authChecked || redirecting || isNewTemplate || !templateId || !addExerciseId) return;
+    if (handledAddExerciseIdRef.current === addExerciseId) return;
+    if (!exerciseOptions.some((exercise) => exercise.id === addExerciseId)) return;
+
+    handledAddExerciseIdRef.current = addExerciseId;
+
+    async function addPickedExercise() {
+      try {
+        setError(null);
+        const inserted = await appendWorkoutTemplateExercise(templateId!, {
+          exercise_id: addExerciseId!,
+          target_sets: null,
+          target_reps: null,
+          target_reps_min: null,
+          target_reps_max: null,
+          target_weight: null,
+          target_duration_sec: null,
+          target_distance: null,
+          target_distance_unit: null,
+          target_rest_sec: null,
+          notes: null,
+        });
+
+        setBuilderExercises((current) => [...current, mapTemplateExerciseToBuilder(inserted)]);
+        setMessage(`Added ${selectedExerciseName(addExerciseId!, exerciseOptions)}.`);
+        router.replace(`/workouts/templates/${templateId}`);
+      } catch (error) {
+        console.error("Failed to add exercise to template:", error);
+        setError(error instanceof Error ? error.message : "Exercise could not be added.");
+      }
+    }
+
+    void addPickedExercise();
+  }, [
+    addExerciseId,
+    authChecked,
+    exerciseOptions,
+    isNewTemplate,
+    redirecting,
+    router,
+    templateId,
+  ]);
+
+  useEffect(() => {
+    if (!authChecked || redirecting || scrollTo !== "exercises" || !templateId) return;
+
+    window.setTimeout(() => {
+      exercisesSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      router.replace(`/workouts/templates/${templateId}`);
+    }, 100);
+  }, [authChecked, redirecting, router, scrollTo, templateId]);
+
+  useEffect(() => {
+    if (!deleteConfirming) return;
+
+    const timeout = window.setTimeout(() => {
+      setDeleteConfirming(false);
+    }, 2000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [deleteConfirming]);
+
+  useEffect(() => {
+    const actionBar = actionBarRef.current;
+    if (!actionBar || isNewTemplate || !template) {
+      setActionBarDocked(false);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setActionBarDocked(!entry.isIntersecting);
+      },
+      {
+        rootMargin: "0px 0px -176px 0px",
+        threshold: 0.01,
+      }
+    );
+
+    observer.observe(actionBar);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isNewTemplate, template]);
+
   const focusTags = useMemo(
     () =>
       focusTagsInput
@@ -238,6 +395,66 @@ export default function WorkoutTemplateDetailPage() {
     );
   }
 
+  function renderStepperField(
+    exercise: BuilderExercise,
+    field: BuilderNumberField,
+    label: string,
+    step: number,
+    inputMode: "numeric" | "decimal" = "numeric"
+  ) {
+    const value = String(exercise[field] ?? "");
+    const stepperBaseValue = getStepperBaseValue(exercise, field);
+    const placeholder =
+      field === "target_reps_max" && !value && exercise.target_reps_min
+        ? exercise.target_reps_min
+        : "0";
+
+    return (
+      <div className="min-w-0 rounded-2xl border border-gray-700 bg-gray-800 p-2">
+        <div className="mb-1 text-center text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+          {label}
+        </div>
+        <div className="grid min-w-0 grid-cols-[1.45rem_minmax(0,1fr)_1.45rem] items-center gap-1">
+          <button
+            type="button"
+            onClick={() =>
+              updateBuilderExercise(
+                exercise.id,
+                field,
+                stepInputValue(stepperBaseValue, step, -1)
+              )
+            }
+            className="h-7 rounded-xl bg-gray-900 text-sm font-bold text-white hover:bg-gray-700"
+            aria-label={`Decrease ${label}`}
+          >
+            -
+          </button>
+          <input
+            value={value}
+            onChange={(e) => updateBuilderExercise(exercise.id, field, e.target.value)}
+            inputMode={inputMode}
+            placeholder={placeholder}
+            className="min-w-0 bg-transparent text-center text-sm font-semibold text-white outline-none placeholder:text-gray-500"
+          />
+          <button
+            type="button"
+            onClick={() =>
+              updateBuilderExercise(
+                exercise.id,
+                field,
+                stepInputValue(stepperBaseValue, step, 1)
+              )
+            }
+            className="h-7 rounded-xl bg-gray-900 text-sm font-bold text-white hover:bg-gray-700"
+            aria-label={`Increase ${label}`}
+          >
+            +
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   function addExerciseRow() {
     setBuilderExercises((current) => [...current, createBuilderExercise()]);
   }
@@ -249,22 +466,68 @@ export default function WorkoutTemplateDetailPage() {
     });
   }
 
-  async function handleSaveTemplate() {
-    if (!userId) return;
+  function addExerciseHref(targetTemplateId = templateId) {
+    if (!targetTemplateId || targetTemplateId === "new") return null;
+    const params = new URLSearchParams({
+      pickForTemplate: "1",
+      templateId: targetTemplateId,
+    });
+    return `/workouts/exercises?${params.toString()}`;
+  }
 
+  function buildTemplatePayload() {
     const trimmedName = templateName.trim();
+
     if (!trimmedName) {
       setError("Template name is required.");
-      return;
+      return null;
     }
 
-    const payload = {
+    return {
       name: trimmedName,
       description,
       focus_tags: focusTags,
       estimated_duration_min: durationMinutes ? Number(durationMinutes) : null,
       is_archived: false,
     };
+  }
+
+  async function handleCreateTemplateAndAddExercise() {
+    if (!userId) return;
+
+    const payload = buildTemplatePayload();
+    if (!payload) return;
+
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const savedTemplate = await createWorkoutTemplate(userId, payload);
+      await replaceWorkoutTemplateExercises(
+        savedTemplate.id,
+        buildExercisePayload(builderExercises, exerciseOptions)
+      );
+
+      const href = addExerciseHref(savedTemplate.id);
+      if (href) {
+        router.replace(href);
+      }
+    } catch (error) {
+      console.error("Failed to create workout template before adding exercise:", error);
+      setError(error instanceof Error ? error.message : "Template could not be created.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveTemplate() {
+    if (!userId) return;
+
+    const payload = buildTemplatePayload();
+    if (!payload) {
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -275,7 +538,10 @@ export default function WorkoutTemplateDetailPage() {
         ? await createWorkoutTemplate(userId, payload)
         : await updateWorkoutTemplate(templateId!, userId, payload);
 
-      await replaceWorkoutTemplateExercises(savedTemplate.id, buildExercisePayload(builderExercises));
+      await replaceWorkoutTemplateExercises(
+        savedTemplate.id,
+        buildExercisePayload(builderExercises, exerciseOptions)
+      );
 
       setTemplate(savedTemplate);
       setMessage(isNewTemplate ? "Template created." : "Template updated.");
@@ -302,10 +568,8 @@ export default function WorkoutTemplateDetailPage() {
   async function handleDeleteTemplate() {
     if (!template || !userId) return;
 
-    const confirmed = window.confirm(`Delete "${template.name}"? This cannot be undone.`);
-    if (!confirmed) return;
-
     setDeleting(true);
+    setDeleteConfirming(false);
     setError(null);
     setMessage(null);
 
@@ -317,6 +581,70 @@ export default function WorkoutTemplateDetailPage() {
       setError(error instanceof Error ? error.message : "Template could not be deleted.");
       setDeleting(false);
     }
+  }
+
+  function renderActionBar(isDocked = false) {
+    return (
+      <div
+        ref={isDocked ? undefined : actionBarRef}
+        className={`grid grid-cols-[2fr_5fr_2fr] gap-2 rounded-3xl border border-gray-700 bg-gray-800/90 p-2 shadow-sm backdrop-blur ${
+          isDocked ? "shadow-2xl" : ""
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => void handleSaveTemplate()}
+          disabled={saving || deleting}
+          className="rounded-2xl bg-blue-600 px-3 py-4 text-center text-xs font-semibold text-white transition hover:-translate-y-0.5 hover:bg-blue-500 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? "Saving..." : isNewTemplate ? "Create Template" : "Save Changes"}
+        </button>
+
+        {!isNewTemplate && template ? (
+          <Link
+            href={`/workouts/session/${template.id}`}
+            className="rounded-2xl bg-gray-900 px-4 py-4 text-center text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-blue-600 hover:shadow-lg"
+          >
+            Start Workout
+          </Link>
+        ) : (
+          <Link
+            href="/workouts/exercises"
+            className="rounded-2xl bg-gray-900 px-4 py-4 text-center text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-blue-600 hover:shadow-lg"
+          >
+            Browse Exercises
+          </Link>
+        )}
+
+        {!isNewTemplate && template ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (deleteConfirming) {
+                void handleDeleteTemplate();
+                return;
+              }
+              setDeleteConfirming(true);
+            }}
+            disabled={saving || deleting}
+            className={`rounded-2xl px-3 py-4 text-center text-xs font-semibold transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60 ${
+              deleteConfirming
+                ? "bg-red-600 text-white hover:bg-red-500"
+                : "bg-red-500/15 text-red-200 hover:bg-red-500/25"
+            }`}
+          >
+            {deleting ? "Deleting..." : deleteConfirming ? "Confirm Delete" : "Delete Template"}
+          </button>
+        ) : (
+          <Link
+            href="/workouts/templates"
+            className="rounded-2xl bg-gray-900 px-3 py-4 text-center text-xs font-semibold text-white transition hover:-translate-y-0.5 hover:bg-gray-700 hover:shadow-lg"
+          >
+            Back To Templates
+          </Link>
+        )}
+      </div>
+    );
   }
 
   if (redirecting || !authChecked) {
@@ -340,6 +668,12 @@ export default function WorkoutTemplateDetailPage() {
       backLabel="Templates"
     >
       <div className="space-y-4 pb-8">
+        {actionBarDocked ? (
+          <div className="fixed inset-x-0 bottom-[6.75rem] z-30 mx-auto w-full max-w-md px-4">
+            {renderActionBar(true)}
+          </div>
+        ) : null}
+
         {error ? (
           <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
@@ -429,25 +763,48 @@ export default function WorkoutTemplateDetailPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-gray-700 bg-gray-800 p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Exercises</h2>
-              <p className="mt-1 text-sm text-gray-400">
-                Choose exercises and set your targets for each movement.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={addExerciseRow}
-              className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Add Exercise
-            </button>
+        <section
+          ref={exercisesSectionRef}
+          className="rounded-3xl border border-gray-700 bg-gray-800 p-5 shadow-sm scroll-mt-4"
+        >
+          <div>
+            <h2 className="text-lg font-semibold text-white">Exercises</h2>
+            <p className="mt-1 text-sm text-gray-400">
+              Add movements from the exercise library, then tune sets, reps, rest, and notes here.
+            </p>
           </div>
 
+          {addExerciseHref() ? (
+            <Link
+              href={addExerciseHref()!}
+              className="mt-4 block w-full rounded-2xl bg-blue-600 px-4 py-4 text-center text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Add Exercise
+            </Link>
+          ) : (
+            <button
+              type="button"
+              disabled={saving || deleting}
+              onClick={() =>
+                isNewTemplate
+                  ? void handleCreateTemplateAndAddExercise()
+                  : addExerciseRow()
+              }
+              className="mt-4 w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving && isNewTemplate
+                ? "Creating Template..."
+                : isNewTemplate
+                  ? "Create Template And Add Exercise"
+                  : "Add Exercise"}
+            </button>
+          )}
+
           <div className="mt-4 space-y-4">
-            {builderExercises.map((exercise, index) => (
+            {builderExercises.filter((exercise) => exercise.exercise_id).length > 0 ? (
+            builderExercises
+              .filter((exercise) => exercise.exercise_id)
+              .map((exercise, index) => (
               <div key={exercise.id} className="rounded-3xl bg-gray-900 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -455,7 +812,7 @@ export default function WorkoutTemplateDetailPage() {
                       {index + 1}. {selectedExerciseName(exercise.exercise_id, exerciseOptions)}
                     </div>
                     <div className="mt-1 text-xs text-gray-400">
-                      {buildExerciseSummary(exercise)}
+                      {buildExerciseSummary(exercise, exerciseOptions)}
                     </div>
                   </div>
                   <button
@@ -467,114 +824,40 @@ export default function WorkoutTemplateDetailPage() {
                   </button>
                 </div>
 
-                <div className="mt-4">
-                  <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Exercise
-                  </label>
-                  <select
-                    value={exercise.exercise_id}
-                    onChange={(e) => updateBuilderExercise(exercise.id, "exercise_id", e.target.value)}
-                    className="w-full rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white"
-                  >
-                    <option value="">Choose exercise</option>
-                    {exerciseOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.name}
-                      </option>
-                    ))}
-                  </select>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {renderStepperField(exercise, "target_sets", "Sets", 1)}
+                  {renderStepperField(exercise, "target_reps_min", "Min Reps", 1)}
+                  {renderStepperField(exercise, "target_reps_max", "Max Reps", 1)}
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  <input
-                    value={exercise.target_sets}
-                    onChange={(e) => updateBuilderExercise(exercise.id, "target_sets", e.target.value)}
-                    inputMode="numeric"
-                    placeholder="Sets"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
-                  <input
-                    value={exercise.target_reps}
-                    onChange={(e) => updateBuilderExercise(exercise.id, "target_reps", e.target.value)}
-                    inputMode="numeric"
-                    placeholder="Reps"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
-                  <input
-                    value={exercise.target_weight}
-                    onChange={(e) =>
-                      updateBuilderExercise(exercise.id, "target_weight", e.target.value)
-                    }
-                    inputMode="decimal"
-                    placeholder="Weight"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
-                  <input
-                    value={exercise.target_reps_min}
-                    onChange={(e) =>
-                      updateBuilderExercise(exercise.id, "target_reps_min", e.target.value)
-                    }
-                    inputMode="numeric"
-                    placeholder="Reps Min"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
-                  <input
-                    value={exercise.target_reps_max}
-                    onChange={(e) =>
-                      updateBuilderExercise(exercise.id, "target_reps_max", e.target.value)
-                    }
-                    inputMode="numeric"
-                    placeholder="Reps Max"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
-                  <input
-                    value={exercise.target_rest_sec}
-                    onChange={(e) =>
-                      updateBuilderExercise(exercise.id, "target_rest_sec", e.target.value)
-                    }
-                    inputMode="numeric"
-                    placeholder="Rest Sec"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {renderStepperField(exercise, "target_weight", "Weight", 5, "decimal")}
+                  {renderStepperField(exercise, "target_duration_sec", "Duration", 15)}
+                  {renderStepperField(exercise, "target_rest_sec", "Rest", 15)}
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_8rem]">
-                  <input
-                    value={exercise.target_duration_sec}
-                    onChange={(e) =>
-                      updateBuilderExercise(exercise.id, "target_duration_sec", e.target.value)
-                    }
-                    inputMode="numeric"
-                    placeholder="Duration Sec"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
-                  <input
-                    value={exercise.target_distance}
-                    onChange={(e) =>
-                      updateBuilderExercise(exercise.id, "target_distance", e.target.value)
-                    }
-                    inputMode="decimal"
-                    placeholder="Distance"
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
-                  />
-                  <select
-                    value={exercise.target_distance_unit}
-                    onChange={(e) =>
-                      updateBuilderExercise(
-                        exercise.id,
-                        "target_distance_unit",
-                        e.target.value as DistanceUnit | ""
-                      )
-                    }
-                    className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white"
-                  >
-                    {distanceUnitOptions.map((option) => (
-                      <option key={option || "blank"} value={option}>
-                        {option || "Unit"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {usesCardioTargets(exercise.exercise_id, exerciseOptions) ? (
+                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_8rem] gap-3">
+                    {renderStepperField(exercise, "target_distance", "Distance", 0.25, "decimal")}
+                    <select
+                      value={exercise.target_distance_unit}
+                      onChange={(e) =>
+                        updateBuilderExercise(
+                          exercise.id,
+                          "target_distance_unit",
+                          e.target.value as DistanceUnit | ""
+                        )
+                      }
+                      className="rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white"
+                    >
+                      {distanceUnitOptions.map((option) => (
+                        <option key={option || "blank"} value={option}>
+                          {option || "Unit"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
 
                 <textarea
                   value={exercise.notes}
@@ -584,55 +867,37 @@ export default function WorkoutTemplateDetailPage() {
                   className="mt-3 w-full rounded-2xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-white placeholder:text-gray-500"
                 />
               </div>
-            ))}
+            ))
+            ) : (
+              <div className="rounded-3xl border border-dashed border-gray-700 bg-gray-900/60 p-5 text-sm text-gray-400">
+                No exercises yet. Use the Add Exercise button to search the library and bring one
+                back into this template.
+              </div>
+            )}
           </div>
         </section>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <button
-            type="button"
-            onClick={() => void handleSaveTemplate()}
-            disabled={saving || deleting}
-            className="rounded-2xl bg-blue-600 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saving ? "Saving..." : isNewTemplate ? "Create Template" : "Save Changes"}
-          </button>
-
-          {!isNewTemplate && template ? (
-            <Link
-              href={`/workouts/session/${template.id}`}
-              className="rounded-2xl bg-gray-900 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-gray-700"
-            >
-              Start Workout
-            </Link>
-          ) : (
-            <Link
-              href="/workouts/exercises"
-              className="rounded-2xl bg-gray-900 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-gray-700"
-            >
-              Browse Exercises
-            </Link>
-          )}
-
-          {!isNewTemplate && template ? (
-            <button
-              type="button"
-              onClick={() => void handleDeleteTemplate()}
-              disabled={saving || deleting}
-              className="rounded-2xl bg-red-500/15 px-4 py-3 text-center text-sm font-semibold text-red-200 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {deleting ? "Deleting..." : "Delete Template"}
-            </button>
-          ) : (
-            <Link
-              href="/workouts/templates"
-              className="rounded-2xl bg-gray-900 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-gray-700"
-            >
-              Back To Templates
-            </Link>
-          )}
-        </div>
+        {renderActionBar()}
       </div>
     </AppShell>
+  );
+}
+
+export default function WorkoutTemplateDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell
+          title="Template"
+          subtitle="Build and organize a workout"
+          backHref="/workouts/templates"
+          backLabel="Templates"
+        >
+          <div className="text-sm text-gray-400">Loading...</div>
+        </AppShell>
+      }
+    >
+      <WorkoutTemplateDetailPageContent />
+    </Suspense>
   );
 }

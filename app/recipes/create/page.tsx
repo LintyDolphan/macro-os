@@ -36,6 +36,7 @@ import { addIngredientsToGrocery } from "../../lib/mealplan";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase/client";
 import {
+  createIngredient,
   listVisibleIngredients,
   promoteIngredientToVerifiedForTesting,
   type IngredientRecord as IngredientLibraryItem,
@@ -55,6 +56,30 @@ const BUILDER_SECTIONS: { id: BuilderSection; label: string; helper: string }[] 
   { id: "steps", label: "Steps", helper: "Cooking notes" },
   { id: "review", label: "Review", helper: "Save recipe" },
 ];
+
+type FoodSuggestion = {
+  sourceName: string;
+  sourceId: string;
+  name: string;
+  foodCategory?: string | null;
+  caloriesPer100g?: number | null;
+  proteinPer100g?: number | null;
+  carbsPer100g?: number | null;
+  fatPer100g?: number | null;
+  confidence?: number | null;
+};
+
+type AverageFoodCandidate = {
+  name: string;
+  foodCategory?: string | null;
+  caloriesPer100g: number;
+  proteinPer100g: number;
+  carbsPer100g: number;
+  fatPer100g: number;
+  sourceIds: string[];
+  matchCount: number;
+  confidence: number;
+};
 
 type ActiveSlot =
   | { type: "meal"; key: MealSlotKey }
@@ -81,6 +106,116 @@ function emptyIngredient(): Ingredient {
 
 function normalizeIngredientName(value: string) {
   return value.trim().toLowerCase();
+}
+
+function formatCatalogFoodName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+    .replace(/\bUsda\b/g, "USDA");
+}
+
+function catalogFoodGroupKey(suggestion: FoodSuggestion) {
+  return formatCatalogFoodName(suggestion.name)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function averageNumericField(
+  suggestions: FoodSuggestion[],
+  field: "caloriesPer100g" | "proteinPer100g" | "carbsPer100g" | "fatPer100g" | "confidence"
+) {
+  const values = suggestions
+    .map((suggestion) => Number(suggestion[field]))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (values.length === 0) return 0;
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function clampSourceConfidence(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.min(1, Math.max(0, roundMacroValue(value)));
+}
+
+function describeUnknownError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+
+  if (error && typeof error === "object") {
+    const errorLike = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+      error_description?: unknown;
+    };
+    const parts = [
+      errorLike.message,
+      errorLike.details,
+      errorLike.hint,
+      errorLike.error_description,
+      errorLike.code ? `Code: ${errorLike.code}` : null,
+    ]
+      .filter((part): part is string | number => typeof part === "string" || typeof part === "number")
+      .map(String);
+
+    if (parts.length > 0) return parts.join(" ");
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "";
+    }
+  }
+
+  return "";
+}
+
+function buildAverageFoodCandidate(query: string, suggestions: FoodSuggestion[]) {
+  const groups = new Map<string, FoodSuggestion[]>();
+  const normalizedQuery = normalizeIngredientName(query);
+
+  for (const suggestion of suggestions) {
+    const key = catalogFoodGroupKey(suggestion);
+    const group = groups.get(key) ?? [];
+    group.push(suggestion);
+    groups.set(key, group);
+  }
+
+  const summarized = Array.from(groups.entries()).map(([key, group]) => {
+    const first = group[0];
+
+    return {
+      key,
+      candidate: {
+        name: formatCatalogFoodName(first.name),
+        foodCategory: first.foodCategory ?? group.find((item) => item.foodCategory)?.foodCategory,
+        caloriesPer100g: roundMacroValue(averageNumericField(group, "caloriesPer100g")),
+        proteinPer100g: roundMacroValue(averageNumericField(group, "proteinPer100g")),
+        carbsPer100g: roundMacroValue(averageNumericField(group, "carbsPer100g")),
+        fatPer100g: roundMacroValue(averageNumericField(group, "fatPer100g")),
+        sourceIds: group.map((item) => item.sourceId).filter(Boolean),
+        matchCount: group.length,
+        confidence: clampSourceConfidence(averageNumericField(group, "confidence")) ?? 0.82,
+      } satisfies AverageFoodCandidate,
+    };
+  });
+
+  return summarized
+    .filter(({ candidate }) => candidate.caloriesPer100g > 0 || candidate.proteinPer100g > 0)
+    .sort((a, b) => {
+      const aExact = a.key === normalizedQuery ? 1 : 0;
+      const bExact = b.key === normalizedQuery ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+
+      const aIncludes = a.key.includes(normalizedQuery) || normalizedQuery.includes(a.key) ? 1 : 0;
+      const bIncludes = b.key.includes(normalizedQuery) || normalizedQuery.includes(b.key) ? 1 : 0;
+      if (aIncludes !== bIncludes) return bIncludes - aIncludes;
+
+      return b.candidate.matchCount - a.candidate.matchCount;
+    })[0]?.candidate ?? null;
 }
 
 function sanitizeImportedIngredientName(value: string) {
@@ -598,6 +733,9 @@ const [plannerErr, setPlannerErr] = useState<string | null>(null);
   const [ingredientManagerSaving, setIngredientManagerSaving] = useState(false);
   const [ingredientManagerSearch, setIngredientManagerSearch] = useState("");
   const [publicIngredientSearch, setPublicIngredientSearch] = useState("");
+  const [averageNutritionLookupIndex, setAverageNutritionLookupIndex] = useState<number | null>(null);
+  const [averageNutritionError, setAverageNutritionError] = useState<string | null>(null);
+  const [averageNutritionRowErrors, setAverageNutritionRowErrors] = useState<Record<number, string>>({});
 
   const [recipeShareCode, setRecipeShareCode] = useState("");
   const [recipeShareMsg, setRecipeShareMsg] = useState<string | null>(null);
@@ -1301,6 +1439,16 @@ setPlannerMsg(
   }
 
   function updateIngredient(i: number, patch: Partial<Ingredient>) {
+    if (patch.name !== undefined || patch.qty !== undefined) {
+      setAverageNutritionRowErrors((prev) => {
+        if (!prev[i]) return prev;
+        const next = { ...prev };
+        delete next[i];
+        return next;
+      });
+      setAverageNutritionError(null);
+    }
+
     setIngredients((prev) =>
       prev.map((ing, idx) => {
         if (idx !== i) return ing;
@@ -1335,6 +1483,141 @@ setPlannerMsg(
         return next;
       })
     );
+  }
+
+  async function createAverageNutritionIngredient(index: number) {
+    if (!currentUserId) {
+      setAverageNutritionError("Sign in before creating averaged nutrition ingredients.");
+      setAverageNutritionRowErrors((prev) => ({
+        ...prev,
+        [index]: "Sign in before creating averaged nutrition ingredients.",
+      }));
+      return;
+    }
+
+    const ingredient = ingredients[index];
+    const query = ingredient?.name.trim();
+
+    if (!query) {
+      setAverageNutritionError("Type an ingredient name before searching average nutrition.");
+      setAverageNutritionRowErrors((prev) => ({
+        ...prev,
+        [index]: "Type an ingredient name before searching average nutrition.",
+      }));
+      return;
+    }
+
+    setAverageNutritionLookupIndex(index);
+    setAverageNutritionError(null);
+    setAverageNutritionRowErrors((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+    setRecipeCreateMsg(null);
+
+    try {
+      const response = await fetch(
+        `/api/catalog/foods/search?q=${encodeURIComponent(query)}&limit=20`
+      );
+
+      const payload = (await response.json()) as { foods?: FoodSuggestion[]; error?: string };
+
+      if (!response.ok) {
+        const message =
+          payload.error ??
+          `Average nutrition lookup is unavailable right now.`;
+
+        setAverageNutritionError(message);
+        setAverageNutritionRowErrors((prev) => ({
+          ...prev,
+          [index]: message,
+        }));
+        return;
+      }
+
+      const averageFood = buildAverageFoodCandidate(query, payload.foods ?? []);
+
+      if (!averageFood) {
+        const message = `No usable USDA nutrition average was found for "${query}".`;
+        setAverageNutritionError(message);
+        setAverageNutritionRowErrors((prev) => ({
+          ...prev,
+          [index]: message,
+        }));
+        return;
+      }
+
+      let createdIngredient =
+        ingredientLibraryByName.get(normalizeIngredientName(averageFood.name)) ??
+        findBestIngredientMatch(averageFood.name, ingredientLibrary, ingredientLibraryByName);
+
+      if (!createdIngredient) {
+        createdIngredient = await createIngredient(currentUserId, {
+          name: averageFood.name,
+          reference_amount_g: 100,
+          reference_calories: averageFood.caloriesPer100g,
+          reference_protein_g: averageFood.proteinPer100g,
+          reference_carbs_g: averageFood.carbsPer100g,
+          reference_fat_g: averageFood.fatPer100g,
+          visibility: "private",
+          verification_status: "custom",
+          ingredient_type: "raw",
+          food_category: averageFood.foodCategory ?? null,
+          data_source: "usda_fdc_average",
+          external_source_id: averageFood.sourceIds[0] ?? null,
+          source_confidence: clampSourceConfidence(averageFood.confidence),
+          source_note: `USDA average of ${averageFood.matchCount} matched food record${
+            averageFood.matchCount === 1 ? "" : "s"
+          } for "${query}".`,
+        });
+      }
+
+      setIngredientLibrary((prev) =>
+        [...prev.filter((item) => item.id !== createdIngredient.id), createdIngredient].sort((a, b) =>
+          a.name.localeCompare(b.name)
+        )
+      );
+
+      setIngredients((prev) =>
+        prev.map((item, itemIndex) => {
+          if (itemIndex !== index) return item;
+
+          const nextQuantityGrams =
+            parseQuantityToGrams(item.qty, createdIngredient.name, createdIngredient) ??
+            item.quantityGrams;
+
+          return {
+            ...item,
+            name: createdIngredient.name,
+            ingredientId: createdIngredient.id,
+            quantityGrams: nextQuantityGrams,
+            isLinked: true,
+            isPrivate: true,
+          };
+        })
+      );
+
+      setRecipeCreateMsg(
+        createdIngredient.data_source === "usda_fdc_average"
+          ? `Linked "${createdIngredient.name}" using an average of ${averageFood.matchCount} USDA nutrition match${
+              averageFood.matchCount === 1 ? "" : "es"
+            }.`
+          : `Linked "${createdIngredient.name}" from your ingredient library.`
+      );
+    } catch (error) {
+      if (error instanceof Error) {
+        console.warn("Average nutrition ingredient could not be created:", error.message);
+      }
+      const message = error instanceof Error ? error.message : "Average nutrition could not be created.";
+      setAverageNutritionError(message);
+      setAverageNutritionRowErrors((prev) => ({
+        ...prev,
+        [index]: message,
+      }));
+    } finally {
+      setAverageNutritionLookupIndex(null);
+    }
   }
 
   async function promotePrivateIngredientForTesting(ingredient: IngredientLibraryItem) {
@@ -1491,7 +1774,9 @@ try {
 
   setMyRecipes(nextRecipes);
 } catch (error) {
-  console.error("Failed to create recipe:", error);
+  const message = describeUnknownError(error) || "Recipe could not be saved.";
+  console.warn("Failed to create recipe:", message);
+  setRecipeCreateError(message);
   return;
 }
 
@@ -2683,7 +2968,7 @@ function BuilderSectionButton({
               <h3 className="mb-2 text-sm font-semibold text-gray-300">Ingredients</h3>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-500/20 bg-blue-500/10 p-3">
                 <div className="text-xs text-blue-100/85">
-                  Recipe entry is now focused on selecting existing ingredients. New foods and barcode-based items should be created from Inventory.
+                  Link ingredients from your library, or create a private average from USDA nutrition when you only need a clean generic macro estimate.
                 </div>
                 <button
                   type="button"
@@ -2693,6 +2978,11 @@ function BuilderSectionButton({
                   Open Inventory Intake
                 </button>
               </div>
+              {averageNutritionError ? (
+                <div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                  {averageNutritionError}
+                </div>
+              ) : null}
               <div className="mb-3 rounded-xl border border-gray-700 bg-gray-950/50 p-3 text-xs text-gray-400">
                 Quantity helpers: `g`, `kg`, `oz`, and `lb` always work. `ml` and `L` now work
                 for supported liquids and ingredients with saved volume conversions. `cup`, `tbsp`,
@@ -2772,9 +3062,19 @@ function BuilderSectionButton({
                           Ingredient not in your library yet
                         </div>
                         <div className="mt-1 text-xs text-amber-200/80">
-                          Create it in Inventory so it can later support barcode, nutrition-label, and recipe use from one place.
+                          Create an averaged USDA ingredient for recipe macro math, or create it in Inventory later if you need barcode and label details.
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void createAverageNutritionIngredient(idx)}
+                            disabled={averageNutritionLookupIndex !== null}
+                            className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-gray-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {averageNutritionLookupIndex === idx
+                              ? "Averaging..."
+                              : "Use Average Nutrition"}
+                          </button>
                           <button
                             type="button"
                             onClick={() => openInventoryIngredientCreate(idx)}
@@ -2786,6 +3086,11 @@ function BuilderSectionButton({
                             You can still keep this as a manual ingredient for now.
                           </div>
                         </div>
+                        {averageNutritionRowErrors[idx] ? (
+                          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                            {averageNutritionRowErrors[idx]}
+                          </div>
+                        ) : null}
                       </div>
                     )}
 

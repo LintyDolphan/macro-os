@@ -210,6 +210,11 @@ function roundMacros(macros: Macros): Macros {
   };
 }
 
+function roundCalories(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+}
+
 function mapDbRecipeToRecipe(dbRecipe: DbRecipeRow): Recipe {
   const linkedTotals = roundMacros(
     calculateRecipeTotalsFromLinkedIngredients(dbRecipe.recipe_ingredients ?? [])
@@ -262,7 +267,7 @@ function mapRecipeToDbInput(recipe: Omit<Recipe, "id" | "createdAt" | "isTemplat
     description: null,
     instructions: joinStepsToInstructions(recipe.steps),
     servings: recipe.defaultServings,
-    calories: recipe.totalMacros.calories,
+    calories: roundCalories(recipe.totalMacros.calories),
     protein_g: recipe.totalMacros.protein,
     carbs_g: recipe.totalMacros.carbs,
     fat_g: recipe.totalMacros.fat,
