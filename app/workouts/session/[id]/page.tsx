@@ -5,8 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import AppShell from "../../../components/AppShell";
 import {
+  cancelOtherInProgressWorkoutSessions,
   createWorkoutSession,
   createWorkoutSessionExercises,
+  getActiveWorkoutSessionForTemplate,
   getCurrentUser,
   getWorkoutSessionByIdMaybe,
   getWorkoutSessionExercises,
@@ -272,6 +274,16 @@ export default function WorkoutSessionPage() {
 
         let liveSession = await getWorkoutSessionByIdMaybe(routeId);
 
+        if (liveSession?.status === "completed") {
+          if (!active) return;
+          router.replace(`/workouts/history/${liveSession.id}`);
+          return;
+        }
+
+        if (liveSession?.status === "cancelled") {
+          liveSession = null;
+        }
+
         if (!liveSession) {
           if (routeId === "demo") {
             liveSession = await createWorkoutSession(user.id, {
@@ -282,47 +294,55 @@ export default function WorkoutSessionPage() {
           } else {
             const template = await getWorkoutTemplate(routeId);
             const templateExercises = await getWorkoutTemplateExercises(routeId);
-
-            liveSession = await createWorkoutSession(user.id, {
-              template_id: template.id,
-              name: template.name,
-              status: "in_progress",
-              started_at: new Date().toISOString(),
-            });
-
-            const createdSessionExercises = await createWorkoutSessionExercises(
-              liveSession.id,
-              templateExercises.map((exercise, index) => ({
-                exercise_id: exercise.exercise_id,
-                template_exercise_id: exercise.id,
-                sort_order: index,
-                planned_sets: exercise.target_sets,
-                planned_reps: resolveTemplateRepsTarget(exercise),
-                planned_duration_sec: exercise.target_duration_sec,
-                planned_distance: exercise.target_distance,
-                notes: exercise.notes,
-              }))
+            const activeTemplateSession = await getActiveWorkoutSessionForTemplate(
+              user.id,
+              template.id
             );
 
-            await Promise.all(
-              createdSessionExercises.map((sessionExercise, index) =>
-                replaceWorkoutSets(
-                  sessionExercise.id,
-                  createInitialSets(
-                    templateExercises[index]?.target_sets ?? null,
-                    buildSetDefaultsFromTemplate(templateExercises[index])
-                  ).map((set) => ({
-                    set_number: set.set_number,
-                    reps: set.reps ? Number(set.reps) : null,
-                    weight: set.weight ? Number(set.weight) : null,
-                    duration_sec: set.duration_sec ? Number(set.duration_sec) : null,
-                    distance: set.distance ? Number(set.distance) : null,
-                    distance_unit: set.distance_unit || null,
-                    completed: set.completed,
-                  }))
+            if (activeTemplateSession) {
+              liveSession = activeTemplateSession;
+            } else {
+              liveSession = await createWorkoutSession(user.id, {
+                template_id: template.id,
+                name: template.name,
+                status: "in_progress",
+                started_at: new Date().toISOString(),
+              });
+
+              const createdSessionExercises = await createWorkoutSessionExercises(
+                liveSession.id,
+                templateExercises.map((exercise, index) => ({
+                  exercise_id: exercise.exercise_id,
+                  template_exercise_id: exercise.id,
+                  sort_order: index,
+                  planned_sets: exercise.target_sets,
+                  planned_reps: resolveTemplateRepsTarget(exercise),
+                  planned_duration_sec: exercise.target_duration_sec,
+                  planned_distance: exercise.target_distance,
+                  notes: exercise.notes,
+                }))
+              );
+
+              await Promise.all(
+                createdSessionExercises.map((sessionExercise, index) =>
+                  replaceWorkoutSets(
+                    sessionExercise.id,
+                    createInitialSets(
+                      templateExercises[index]?.target_sets ?? null,
+                      buildSetDefaultsFromTemplate(templateExercises[index])
+                    ).map((set) => ({
+                      set_number: set.set_number,
+                      reps: set.reps ? Number(set.reps) : null,
+                      weight: set.weight ? Number(set.weight) : null,
+                      duration_sec: set.duration_sec ? Number(set.duration_sec) : null,
+                      distance: set.distance ? Number(set.distance) : null,
+                      distance_unit: set.distance_unit || null,
+                      completed: set.completed,
+                    }))
+                  )
                 )
-              )
-            );
+              );
+            }
           }
         }
 
@@ -366,7 +386,7 @@ export default function WorkoutSessionPage() {
     return () => {
       active = false;
     };
-  }, [routeId]);
+  }, [routeId, router]);
 
   const progressCopy = useMemo(() => {
     if (!session) return "Loading session";
@@ -545,6 +565,7 @@ export default function WorkoutSessionPage() {
     try {
       const updatedSession = await persistSession("completed");
       if (updatedSession) {
+        await cancelOtherInProgressWorkoutSessions(userId!, updatedSession.id);
         router.replace(`/workouts/history/${updatedSession.id}`);
       }
     } catch (error) {
@@ -581,7 +602,13 @@ export default function WorkoutSessionPage() {
           </div>
         ) : null}
 
-        <section className="rounded-3xl border border-gray-700 bg-gray-800 p-5 shadow-sm">
+        <section
+          className={`rounded-3xl border p-5 shadow-sm transition ${
+            completionStats.percent === 100
+              ? "workout-complete-card"
+              : "border-gray-700 bg-gray-800"
+          }`}
+        >
           <div>
             <div className="min-w-0">
               <h1 className="text-xl font-bold text-white">{session.name}</h1>
@@ -609,9 +636,9 @@ export default function WorkoutSessionPage() {
               {completionStats.completedSets} of {completionStats.totalSets} complete
             </span>
           </div>
-          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-gray-900">
+          <div className="monolith-progress-track mt-2 h-2.5 overflow-hidden rounded-full bg-gray-900">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-blue-600 to-emerald-500 transition-all duration-300"
+              className="monolith-progress-fill h-full rounded-full bg-gradient-to-r from-blue-600 to-emerald-500 transition-all duration-300"
               style={{ width: `${completionStats.percent}%` }}
             />
           </div>
@@ -628,7 +655,7 @@ export default function WorkoutSessionPage() {
                 key={exercise.sessionExerciseId}
                 className={`rounded-3xl border p-5 shadow-sm transition ${
                   exerciseComplete
-                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    ? "workout-complete-card"
                     : "border-gray-700 bg-gray-800"
                 }`}
               >
@@ -665,7 +692,7 @@ export default function WorkoutSessionPage() {
                         key={`${exercise.sessionExerciseId}-${set.set_number}`}
                         className={`grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2 rounded-2xl border p-2 ${
                           set.completed
-                            ? "border-emerald-500/40 bg-emerald-500/10"
+                            ? "workout-complete-row"
                             : "border-gray-700 bg-gray-800"
                         }`}
                       >
@@ -757,12 +784,12 @@ export default function WorkoutSessionPage() {
                           }
                           className={`h-10 w-10 rounded-full text-lg font-bold transition ${
                             set.completed
-                              ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
-                              : "bg-red-500/15 text-red-200 hover:bg-red-500/25"
+                              ? "bg-[var(--mono-blue)] text-[#020405] shadow-lg shadow-[rgba(111,213,255,0.2)]"
+                              : "border border-gray-600 bg-gray-950 text-gray-500 hover:border-[rgba(189,238,255,0.38)] hover:text-[#d8f5ff] hover:shadow-[0_0_16px_rgba(111,213,255,0.12)]"
                           }`}
                           aria-label={`${set.completed ? "Unconfirm" : "Confirm"} set ${set.set_number}`}
                         >
-                          {set.completed ? "✓" : "×"}
+                          {set.completed ? "✓" : "○"}
                         </button>
                       </div>
                     ))}

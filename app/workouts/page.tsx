@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import AppShell from "../components/AppShell";
 import {
   getCurrentUser,
+  getActiveWorkoutSession,
   listVisibleExercises,
   listWorkoutSessions,
   listWorkoutTemplates,
@@ -133,15 +134,20 @@ export default function WorkoutsPage() {
           return;
         }
 
-        const [loadedTemplates, loadedSessions, loadedExercises] = await Promise.all([
+        const [loadedTemplates, loadedSessions, loadedExercises, loadedActiveSession] = await Promise.all([
           listWorkoutTemplates(user.id),
           listWorkoutSessions(user.id),
           listVisibleExercises(user.id),
+          getActiveWorkoutSession(user.id),
         ]);
 
         if (!active) return;
         setTemplates(loadedTemplates);
-        setSessions(loadedSessions);
+        setSessions(
+          loadedActiveSession && !loadedSessions.some((session) => session.id === loadedActiveSession.id)
+            ? [loadedActiveSession, ...loadedSessions]
+            : loadedSessions
+        );
         setExercises(loadedExercises);
         setError(null);
       } catch (error) {
@@ -166,7 +172,14 @@ export default function WorkoutsPage() {
   );
 
   const activeSession = useMemo(
-    () => sessions.find((session) => session.status === "in_progress") ?? null,
+    () =>
+      [...sessions]
+        .filter((session) => session.status === "in_progress")
+        .sort((a, b) => {
+          const aTime = new Date(a.updated_at ?? a.created_at).getTime();
+          const bTime = new Date(b.updated_at ?? b.created_at).getTime();
+          return bTime - aTime;
+        })[0] ?? null,
     [sessions]
   );
 

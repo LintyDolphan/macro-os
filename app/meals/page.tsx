@@ -31,7 +31,6 @@ import {
   type MealSlotKey,
   type SnackSlot,
   type PlannerDayKey,
-  type PlannerDayState,
   type PlannerStateByDay,
 } from "../lib/plannerStorage";
 import { loadGroceryList, saveGroceryList, type GroceryMode } from "../lib/grocery";

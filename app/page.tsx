@@ -109,7 +109,7 @@ function DashboardCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-gray-700 bg-gray-800 p-5 shadow-sm">
+    <section className="monolith-card rounded-[28px] p-5">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-white">{title}</h2>
         {subtitle ? <p className="mt-1 text-sm text-gray-400">{subtitle}</p> : null}
@@ -123,7 +123,7 @@ function OnboardingPrompt({ profile }: { profile: UserProfileRow | null }) {
   const hasStarted = Boolean(profile);
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-blue-400/30 bg-gradient-to-br from-blue-600/25 via-gray-800 to-emerald-500/15 p-5 shadow-sm">
+    <section className="monolith-card rounded-[28px] p-5">
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">
         Personal Setup
       </div>
@@ -135,13 +135,13 @@ function OnboardingPrompt({ profile }: { profile: UserProfileRow | null }) {
         shaping meal, grocery, workout, and budget suggestions around you.
       </p>
       <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-        <div className="rounded-2xl bg-gray-950/45 px-2 py-3 text-gray-200">
+        <div className="monolith-subcard rounded-2xl px-2 py-3 text-gray-200">
           Macro Targets
         </div>
-        <div className="rounded-2xl bg-gray-950/45 px-2 py-3 text-gray-200">
+        <div className="monolith-subcard rounded-2xl px-2 py-3 text-gray-200">
           Meal Ideas
         </div>
-        <div className="rounded-2xl bg-gray-950/45 px-2 py-3 text-gray-200">
+        <div className="monolith-subcard rounded-2xl px-2 py-3 text-gray-200">
           Workout Fit
         </div>
       </div>
@@ -154,7 +154,7 @@ function OnboardingPrompt({ profile }: { profile: UserProfileRow | null }) {
         </Link>
         <Link
           href="/macros"
-          className="rounded-2xl bg-gray-950/60 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-gray-900"
+          className="monolith-subcard rounded-2xl px-4 py-3 text-center text-sm font-semibold text-white transition hover:border-white/20"
         >
           Explore App
         </Link>
@@ -175,7 +175,7 @@ function NextActionCard({
   return (
     <Link
       href={summary.href}
-      className="block rounded-[28px] border border-gray-700 bg-gray-900 p-4 transition hover:border-gray-600 hover:bg-gray-800"
+      className="monolith-subcard block rounded-[26px] p-4 transition hover:border-[rgba(189,238,255,0.28)] hover:shadow-[0_0_28px_rgba(111,213,255,0.08)]"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -187,11 +187,11 @@ function NextActionCard({
             {summary.name}
           </div>
           <div className="mt-1 text-sm leading-5 text-gray-500">{summary.description}</div>
-          <div className="mt-3 inline-flex rounded-full bg-gray-800 px-3 py-1.5 text-xs text-gray-300">
+          <div className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs text-gray-300">
             {summary.meta}
           </div>
         </div>
-        <div className="shrink-0 rounded-2xl bg-blue-500/12 px-3 py-2 text-sm font-semibold text-blue-200">
+        <div className="shrink-0 rounded-2xl border border-[rgba(189,238,255,0.16)] bg-[rgba(189,238,255,0.08)] px-3 py-2 text-sm font-semibold text-[#d8f5ff]">
           {summary.actionLabel}
         </div>
       </div>
@@ -224,7 +224,7 @@ function ProgressRow({
           {unit}
         </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-gray-900">
+      <div className="h-2 w-full rounded-full border border-white/10 bg-black/45">
         <div
           className={`h-2 rounded-full transition-all ${colorClass}`}
           style={{ width: `${percent}%` }}
@@ -381,7 +381,7 @@ function PreviewList({
   items: string[];
 }) {
   return (
-    <div className="rounded-2xl bg-gray-900 p-4">
+    <div className="monolith-subcard rounded-2xl p-4">
       <div className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
         {title}
       </div>
@@ -426,7 +426,7 @@ function SmartGuidanceCard({
           <div className="text-sm font-semibold">{guidance.title}</div>
           <div className="mt-1 text-sm leading-5 text-gray-300">{guidance.body}</div>
         </div>
-        <div className="shrink-0 rounded-2xl bg-gray-950/40 px-3 py-2 text-xs font-semibold text-white">
+        <div className="shrink-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-semibold text-white">
           {isBusy ? "Adding" : guidance.actionLabel}
         </div>
       </div>
@@ -1028,7 +1028,7 @@ export default function Dashboard() {
         >
           {current ? (
             <div className="space-y-2.5">
-              <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl bg-gray-900 px-4 py-3">
+              <div className="monolith-subcard mb-3 flex items-start justify-between gap-3 rounded-2xl px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
                     Target
@@ -1053,32 +1053,32 @@ export default function Dashboard() {
                 label={`Calories • ${remaining?.calories ?? 0} left`}
                 consumed={todayTotals.calories}
                 target={current.calories}
-                colorClass="bg-blue-500"
+                colorClass="macro-bar-calories"
               />
               <ProgressRow
                 label={`Protein • ${remaining?.protein ?? 0}g left`}
                 consumed={todayTotals.protein}
                 target={current.protein}
                 unit="g"
-                colorClass="bg-emerald-500"
+                colorClass="macro-bar-protein"
               />
               <ProgressRow
                 label={`Carbs • ${remaining?.carbs ?? 0}g left`}
                 consumed={todayTotals.carbs}
                 target={current.carbs}
                 unit="g"
-                colorClass="bg-amber-500"
+                colorClass="macro-bar-carbs"
               />
               <ProgressRow
                 label={`Fat • ${remaining?.fat ?? 0}g left`}
                 consumed={todayTotals.fat}
                 target={current.fat}
                 unit="g"
-                colorClass="bg-fuchsia-500"
+                colorClass="macro-bar-fat"
               />
             </div>
           ) : (
-            <div className="rounded-2xl bg-gray-900 p-4 text-sm text-gray-400">
+            <div className="monolith-subcard rounded-2xl p-4 text-sm text-gray-400">
               Set your macro targets to start tracking daily progress.
             </div>
           )}
@@ -1095,7 +1095,7 @@ export default function Dashboard() {
                 </div>
               ) : null}
 
-              <div className="rounded-2xl bg-gray-900 p-4">
+              <div className="monolith-subcard rounded-2xl p-4">
                 <div className="text-3xl font-bold text-white">{current?.calories ?? 0} kcal</div>
                 <div className="mt-2 text-sm text-gray-300">
                   P {current?.protein ?? 0} • C {current?.carbs ?? 0} • F {current?.fat ?? 0}
@@ -1109,7 +1109,7 @@ export default function Dashboard() {
               ) : null}
             </div>
           ) : (
-            <div className="rounded-2xl bg-gray-900 p-4 text-sm text-gray-400">
+            <div className="monolith-subcard rounded-2xl p-4 text-sm text-gray-400">
               No macro targets set yet.
             </div>
           )}
@@ -1121,7 +1121,7 @@ export default function Dashboard() {
           {recentMeals.length > 0 ? (
             <ul className="space-y-2">
               {recentMeals.map((meal) => (
-                <li key={meal.id} className="rounded-2xl bg-gray-900 px-4 py-3">
+                <li key={meal.id} className="monolith-subcard rounded-2xl px-4 py-3">
                   <div className="text-sm font-semibold text-white">{meal.name}</div>
                   <div className="mt-1 text-xs text-gray-500">
                     {meal.calories} kcal • P {meal.protein} • C {meal.carbs} • F {meal.fat}
@@ -1130,7 +1130,7 @@ export default function Dashboard() {
               ))}
             </ul>
           ) : (
-            <div className="rounded-2xl bg-gray-900 p-4 text-sm text-gray-400">
+            <div className="monolith-subcard rounded-2xl p-4 text-sm text-gray-400">
               No meals logged today yet.
             </div>
           )}
@@ -1143,13 +1143,13 @@ export default function Dashboard() {
 
         <DashboardCard title="Pantry & Grocery" subtitle="What’s low, expiring, or still on your list.">
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-2xl bg-gray-900 p-4">
+            <div className="monolith-subcard rounded-2xl p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
                 Next Trip
               </div>
               <div className="mt-2 text-sm font-semibold text-white">Not scheduled</div>
             </div>
-            <Link href="/grocery" className="rounded-2xl bg-gray-900 p-4 transition hover:bg-gray-800">
+            <Link href="/grocery" className="monolith-subcard rounded-2xl p-4 transition hover:border-[rgba(189,238,255,0.28)]">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
                 To Buy
               </div>
@@ -1192,7 +1192,7 @@ export default function Dashboard() {
             </Link>
             <Link
               href="/grocery"
-              className="rounded-2xl bg-gray-900 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-gray-700"
+              className="monolith-subcard rounded-2xl px-4 py-3 text-center text-sm font-semibold text-white transition hover:border-white/20"
             >
               Open Grocery
             </Link>
@@ -1202,7 +1202,7 @@ export default function Dashboard() {
         {false ? (
         <DashboardCard title="History" subtitle="Restore or remove past macro target entries.">
           {history.length === 0 ? (
-            <div className="rounded-2xl bg-gray-900 p-4 text-sm text-gray-400">
+            <div className="monolith-subcard rounded-2xl p-4 text-sm text-gray-400">
               No history yet. Calculate your macros to start saving entries.
             </div>
           ) : (
@@ -1210,7 +1210,7 @@ export default function Dashboard() {
               {history.map((entry) => (
                 <li
                   key={entry.id}
-                  className="flex items-center justify-between rounded-2xl border border-gray-700 bg-gray-900 p-4"
+                  className="monolith-subcard flex items-center justify-between rounded-2xl p-4"
                 >
                   <button
                     onClick={() => void restoreEntry(entry)}
@@ -1230,7 +1230,7 @@ export default function Dashboard() {
 
                   <button
                     onClick={() => void removeEntry(entry.id)}
-                    className="ml-3 rounded-xl bg-gray-800 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+                    className="ml-3 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-gray-300 hover:bg-white/[0.08] hover:text-white"
                     title="Delete entry"
                   >
                     X

@@ -18,7 +18,7 @@ export default function AppShell({
   children,
 }: AppShellProps) {
   return (
-    <main className="min-h-screen bg-gray-900 text-white">
+    <main className="monolith-shell min-h-screen text-white">
       <ScrollPositionRestorer />
       <TopBar
         title={title}
@@ -27,7 +27,7 @@ export default function AppShell({
         backLabel={backLabel}
       />
 
-      <div className="mx-auto w-full max-w-md px-4 pb-36 pt-4">
+      <div className="mx-auto w-full max-w-md px-4 pb-36 pt-32">
         {children}
       </div>
 

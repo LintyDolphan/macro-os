@@ -4,7 +4,7 @@ import SWRegister from "./sw-register";
 
 export const metadata: Metadata = {
   title: "Macro OS",
-  description: "Macros → meals → groceries",
+  description: "Macros, meals, groceries, and workouts in one planning hub.",
   applicationName: "Macro OS",
   manifest: "/manifest.webmanifest",
   icons: {
@@ -13,13 +13,13 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "Macro OS",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#111827",
+  themeColor: "#030506",
 };
 
 export default function RootLayout({
@@ -36,4 +36,3 @@ export default function RootLayout({
     </html>
   );
 }
-

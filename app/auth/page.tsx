@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "../components/AppShell";
+import Link from "next/link";
 import { supabase } from "../lib/supabase/client";
+import { saveUserProfile } from "../lib/user-profile-db";
 
 type AuthMode = "signin" | "signup";
 
@@ -13,6 +15,7 @@ export default function AuthPage() {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -58,6 +61,11 @@ export default function AuthPage() {
       return;
     }
 
+    if (mode === "signup" && displayName.trim().length < 2) {
+      setError("Please enter your name.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setStatus(null);
@@ -67,6 +75,12 @@ export default function AuthPage() {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
+          options: {
+            data: {
+              display_name: displayName.trim(),
+              full_name: displayName.trim(),
+            },
+          },
         });
 
         if (error) {
@@ -75,6 +89,7 @@ export default function AuthPage() {
         }
 
         if (data.session) {
+          await saveUserProfile({});
           setStatus("Account created and signed in ✅");
           router.push("/");
           router.refresh();
@@ -203,6 +218,19 @@ export default function AuthPage() {
                 />
               </div>
 
+              {mode === "signup" ? (
+                <div>
+                  <label className="mb-1 block text-sm text-gray-300">Display name</label>
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="John Smith"
+                    className="w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-sm text-white"
+                  />
+                </div>
+              ) : null}
+
               <div>
                 <label className="mb-1 block text-sm text-gray-300">Password</label>
                 <input
@@ -225,6 +253,20 @@ export default function AuthPage() {
                   ? "Sign In"
                   : "Create Account"}
               </button>
+
+              {mode === "signup" ? (
+                <p className="text-center text-[11px] leading-relaxed text-gray-500">
+                  By creating an account, you agree to the{" "}
+                  <Link href="/terms" className="font-semibold text-blue-200 hover:text-white">
+                    Terms
+                  </Link>{" "}
+                  and acknowledge the{" "}
+                  <Link href="/privacy" className="font-semibold text-blue-200 hover:text-white">
+                    Privacy Policy
+                  </Link>
+                  .
+                </p>
+              ) : null}
             </form>
           )}
         </div>

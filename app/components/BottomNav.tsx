@@ -60,8 +60,12 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-transparent px-3 pb-3 pt-2">
-      <div className="mx-auto w-full max-w-md rounded-[30px] border border-white/8 bg-[linear-gradient(180deg,rgba(30,41,59,0.94),rgba(15,23,42,0.98))] p-2 shadow-[0_24px_70px_rgba(2,6,23,0.62)] backdrop-blur-xl">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-[#030506] px-0 pb-0 pt-0 shadow-[0_-18px_48px_rgba(0,0,0,0.72)]">
+      <div className="relative mx-auto w-full max-w-md overflow-hidden border-x border-white/10 bg-[#050707] p-2">
+        <div
+          className="pointer-events-none absolute left-0 right-0 top-0 h-px bg-[linear-gradient(90deg,transparent,var(--mono-blue),transparent)]"
+          aria-hidden="true"
+        />
         <div className="grid grid-cols-5 gap-2">
           {navItems.map((item) => {
             const active = isActivePath(pathname, item);
@@ -70,15 +74,23 @@ export default function BottomNav() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex min-h-[80px] min-w-0 flex-col items-center justify-center rounded-[24px] border px-2 py-3 text-center transition ${
+                className={`relative flex min-h-[82px] min-w-0 flex-col items-center justify-center overflow-hidden border px-2 py-3 text-center transition ${
                   active
-                    ? "border-blue-300/35 bg-[linear-gradient(180deg,rgba(59,130,246,0.95),rgba(37,99,235,0.95))] text-white shadow-[0_14px_32px_rgba(37,99,235,0.34)]"
-                    : "border-white/5 bg-white/[0.03] text-gray-300 hover:border-white/10 hover:bg-white/[0.06] hover:text-white"
+                    ? "border-[var(--mono-edge-strong)] bg-[#101719] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+                    : "border-white/5 bg-[#090c0d] text-[#b9c4c9] hover:border-white/14 hover:bg-[#0d1112] hover:text-white"
                 }`}
               >
+                {active ? (
+                  <span
+                    className="pointer-events-none absolute inset-x-4 top-0 h-px bg-[var(--mono-blue)] shadow-[0_0_18px_var(--mono-blue-glow)]"
+                    aria-hidden="true"
+                  />
+                ) : null}
                 <span
                   className={`flex h-9 w-9 items-center justify-center rounded-2xl text-[11px] font-bold tracking-[0.18em] ${
-                    active ? "bg-white/18 text-white" : "bg-white/8 text-gray-200"
+                    active
+                      ? "bg-[#1d2a2e] text-white ring-1 ring-[rgba(189,238,255,0.3)]"
+                      : "bg-[#15191b] text-gray-200"
                   }`}
                 >
                   {item.badge}

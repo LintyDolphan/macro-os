@@ -540,6 +540,37 @@ export async function listWorkoutSessions(userId: string) {
   return (data ?? []) as WorkoutSessionRecord[]
 }
 
+export async function getActiveWorkoutSession(userId: string) {
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .select(SESSION_SELECT)
+    .eq("user_id", userId)
+    .eq("status", "in_progress")
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  return (data as WorkoutSessionRecord | null) ?? null
+}
+
+export async function getActiveWorkoutSessionForTemplate(userId: string, templateId: string) {
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .select(SESSION_SELECT)
+    .eq("user_id", userId)
+    .eq("template_id", templateId)
+    .eq("status", "in_progress")
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) throw error
+  return (data as WorkoutSessionRecord | null) ?? null
+}
+
 export async function getWorkoutSession(sessionId: string) {
   const { data, error } = await supabase
     .from("workout_sessions")
@@ -549,6 +580,17 @@ export async function getWorkoutSession(sessionId: string) {
 
   if (error) throw error
   return data as WorkoutSessionRecord
+}
+
+export async function cancelOtherInProgressWorkoutSessions(userId: string, keepSessionId: string) {
+  const { error } = await supabase
+    .from("workout_sessions")
+    .update({ status: "cancelled" })
+    .eq("user_id", userId)
+    .eq("status", "in_progress")
+    .neq("id", keepSessionId)
+
+  if (error) throw error
 }
 
 export async function getWorkoutSessionByIdMaybe(sessionId: string) {

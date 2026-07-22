@@ -37,6 +37,10 @@ function activityMultiplier(activity: Activity) {
   }
 }
 
+function roundCalories(value: number) {
+  return Math.round(value / 10) * 10;
+}
+
 export function calculateMacros(inputs: MacroInputs) {
   const {
     weightLbs,
@@ -85,14 +89,16 @@ export function calculateMacros(inputs: MacroInputs) {
   const defaultProteinPerLb = goal === "cut" ? 1 : 0.9;
   const protein = weightLbs * (proteinPerLb ?? defaultProteinPerLb);
 
+  const roundedCalories = roundCalories(calories);
+
   // Fat: 25% calories by default
-  const fat = (calories * (fatRatio ?? 0.25)) / 9;
+  const fat = (roundedCalories * (fatRatio ?? 0.25)) / 9;
 
   // Carbs: remaining calories
-  const carbs = (calories - protein * 4 - fat * 9) / 4;
+  const carbs = (roundedCalories - protein * 4 - fat * 9) / 4;
 
   return {
-    calories: Math.round(calories),
+    calories: roundedCalories,
     protein: Math.round(protein),
     carbs: Math.max(0, Math.round(carbs)),
     fat: Math.round(fat),

@@ -121,6 +121,32 @@ function roundMacro(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
+function roundCalories(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value / 10) * 10) : 0;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const candidate = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+    const parts = [candidate.message, candidate.details, candidate.hint]
+      .map((part) => (typeof part === "string" ? part.trim() : ""))
+      .filter(Boolean);
+    const code = typeof candidate.code === "string" ? candidate.code.trim() : "";
+
+    if (parts.length > 0) {
+      return `${parts.join(" ")}${code ? ` Code: ${code}` : ""}`;
+    }
+  }
+
+  return "Onboarding could not be saved.";
+}
+
 function niceGoal(goal: OnboardingGoal) {
   if (goal === "recomp") return "Recomposition";
   return goal.charAt(0).toUpperCase() + goal.slice(1);
@@ -174,7 +200,7 @@ function calculateStarterMacros(draft: Draft) {
     age > 0 && weightKg > 0 && heightCm > 0
       ? 10 * weightKg + 6.25 * heightCm - 5 * age + sexOffset
       : 2000;
-  const calories = roundMacro(bmr * activityMultiplier(draft.activity) * goalAdjustment(draft.goal));
+  const calories = roundCalories(bmr * activityMultiplier(draft.activity) * goalAdjustment(draft.goal));
   const proteinPerLb = draft.goal === "cut" || draft.goal === "recomp" ? 0.9 : 0.8;
   const protein = roundMacro(weightLbs * proteinPerLb);
   const fat = roundMacro((calories * 0.25) / 9);
@@ -321,7 +347,7 @@ export default function OnboardingPage() {
     setError(null);
 
     try {
-      await saveUserProfile({
+      const profileInput = {
         age: Math.round(toNumber(draft.age)),
         gender: draft.gender || null,
         height_cm: inchesToCm(heightIn),
@@ -342,7 +368,7 @@ export default function OnboardingPage() {
           betaStarterMacros: starterMacros,
           units: "imperial_input_metric_storage",
         },
-      });
+      };
 
       const macroTarget: SaveMacroTargetInput = {
         calories: starterMacros.calories,
@@ -359,10 +385,12 @@ export default function OnboardingPage() {
       };
 
       await saveMacroTarget(macroTarget);
+      await saveUserProfile(profileInput);
       router.push("/");
       router.refresh();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Onboarding could not be saved.");
+      console.error("Failed to save onboarding:", saveError);
+      setError(getErrorMessage(saveError));
     } finally {
       setSaving(false);
     }

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase/client";
+import { listHouseholdProfileCardsByIds, type UserProfileCard } from "./user-profile-db";
 
 export type HouseholdRow = {
   id: string;
@@ -15,6 +16,10 @@ export type HouseholdMemberRow = {
   user_id: string;
   role: "owner" | "member";
   created_at: string;
+};
+
+export type HouseholdMemberWithProfile = HouseholdMemberRow & {
+  profile: UserProfileCard | null;
 };
 
 async function getCurrentUser() {
@@ -76,6 +81,17 @@ export async function getMyHouseholdMembers() {
   if (error) throw error;
 
   return (data ?? []) as HouseholdMemberRow[];
+}
+
+export async function getMyHouseholdMembersWithProfiles() {
+  const members = await getMyHouseholdMembers();
+  const profiles = await listHouseholdProfileCardsByIds(members.map((member) => member.user_id));
+  const profilesByUserId = new Map(profiles.map((profile) => [profile.user_id, profile]));
+
+  return members.map((member) => ({
+    ...member,
+    profile: profilesByUserId.get(member.user_id) ?? null,
+  })) as HouseholdMemberWithProfile[];
 }
 
 export async function createHousehold(name: string) {
@@ -177,51 +193,17 @@ export async function joinHouseholdByCode(code: string) {
 }
 
 export async function leaveMyHousehold() {
-  const user = await getCurrentUser();
+  const { error } = await supabase.rpc("leave_current_user_household");
 
-  const { data: member, error: memberError } = await supabase
-    .from("household_members")
-    .select("id, household_id, role")
-    .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle();
-
-  if (memberError) throw memberError;
-  if (!member) {
-    throw new Error("User is not in a household");
-  }
-
-  const { error: deleteError } = await supabase
-    .from("household_members")
-    .delete()
-    .eq("id", member.id);
-
-  if (deleteError) throw deleteError;
+  if (error) throw error;
 
   return { success: true };
 }
 
 export async function leaveHousehold() {
-  const user = await getCurrentUser();
+  const { error } = await supabase.rpc("leave_current_user_household");
 
-  const { data: membership, error: membershipError } = await supabase
-    .from("household_members")
-    .select("id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle();
-
-  if (membershipError) throw membershipError;
-  if (!membership) {
-    throw new Error("User is not in a household");
-  }
-
-  const { error: deleteError } = await supabase
-    .from("household_members")
-    .delete()
-    .eq("id", membership.id);
-
-  if (deleteError) throw deleteError;
+  if (error) throw error;
 
   return true;
 }

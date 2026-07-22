@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type ScannerContext =
   | "general"
+  | "household"
   | "inventory-add"
   | "inventory-use"
   | "snack"
@@ -39,6 +40,8 @@ type ZXingControls = {
 
 function getContextLabel(context: ScannerContext) {
   switch (context) {
+    case "household":
+      return "Scan a household invite QR code to fill the join code.";
     case "inventory-add":
       return "Scan a barcode to add a product into inventory.";
     case "inventory-use":

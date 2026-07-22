@@ -1,8 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #030506;
+  --foreground: #f8fbff;
+  --mono-void: #030506;
+  --mono-panel: #080b0c;
+  --mono-panel-soft: #101416;
+  --mono-edge: rgba(232, 247, 255, 0.16);
+  --mono-edge-strong: rgba(232, 247, 255, 0.38);
+  --mono-blue: #bdeeff;
+  --mono-blue-soft: rgba(189, 238, 255, 0.14);
+  --mono-blue-glow: rgba(111, 213, 255, 0.36);
+  --mono-edge-glow: rgba(189, 238, 255, 0.09);
+  --mono-edge-glow-strong: rgba(189, 238, 255, 0.2);
 }
 
 @theme inline {
@@ -12,17 +22,354 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.monolith-shell {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  background-color: #030506;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.08) 22%, rgba(0, 0, 0, 0.12) 78%, rgba(0, 0, 0, 0.72)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 18rem),
+    url("/backgrounds/monolith-bg-02.png"),
+    linear-gradient(180deg, #030505 0%, #010202 48%, #030505 100%);
+  background-attachment: scroll;
+  background-position:
+    center top,
+    center top,
+    center top,
+    center top;
+  background-repeat:
+    repeat-y,
+    repeat-y,
+    repeat-y,
+    repeat-y;
+  background-size:
+    100% auto,
+    100% auto,
+    min(100vw, 48rem) auto,
+    100% auto;
+}
+
+.monolith-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 18rem, transparent 0, rgba(0, 0, 0, 0.18) 28rem),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18), transparent 18rem, rgba(0, 0, 0, 0.22));
+  opacity: 0.72;
+}
+
+.monolith-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.78), transparent 20%, transparent 80%, rgba(0, 0, 0, 0.78)),
+    radial-gradient(circle at 50% 32rem, rgba(189, 238, 255, 0.04), transparent 24rem);
+  opacity: 0.9;
+}
+
+.monolith-frame {
+  border: 1px solid var(--mono-edge);
+  background:
+    linear-gradient(180deg, rgba(16, 20, 22, 0.92), rgba(3, 5, 6, 0.96)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 36%);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.55),
+    0 0 34px var(--mono-edge-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.monolith-lightline {
+  position: relative;
+}
+
+.monolith-lightline::after {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--mono-blue), transparent);
+  box-shadow: 0 0 18px var(--mono-blue-glow);
+  opacity: 0.85;
+}
+
+.monolith-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(232, 247, 255, 0.16);
+  background: #06090a;
+  box-shadow:
+    0 22px 58px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(189, 238, 255, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.monolith-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 5rem);
+  opacity: 1;
+}
+
+.monolith-card::after {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  top: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(189, 238, 255, 0.58), transparent);
+  box-shadow: 0 0 18px rgba(111, 213, 255, 0.28);
+  opacity: 0.78;
+}
+
+.monolith-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.monolith-subcard {
+  border: 1px solid rgba(232, 247, 255, 0.1);
+  background: #06090a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    inset 0 0 0 1px rgba(189, 238, 255, 0.018),
+    0 0 18px rgba(189, 238, 255, 0.035),
+    0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+/*
+  Temporary palette bridge while the app moves from the old blue/gray beta theme
+  to the monolith visual system. This keeps older page-level Tailwind utilities
+  visually aligned without rewriting every screen in one risky pass.
+*/
+.bg-gray-700,
+.bg-gray-800,
+.bg-gray-900,
+.bg-gray-950,
+.bg-slate-950,
+.bg-gray-800\/40,
+.bg-gray-900\/55,
+.bg-gray-950\/40,
+.bg-gray-950\/45,
+.bg-gray-950\/60,
+.bg-slate-950\/95,
+.bg-blue-950\/95 {
+  background-color: #06090a !important;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 5rem) !important;
+}
+
+.bg-gray-700\/50,
+.bg-gray-700\/\[0\.08\],
+.bg-gray-800\/60,
+.bg-gray-900\/95,
+.bg-blue-500\/10,
+.bg-blue-500\/15,
+.bg-blue-500\/20,
+.bg-blue-500\/25,
+.bg-blue-600\/25,
+.bg-emerald-500\/10,
+.bg-emerald-500\/15,
+.bg-emerald-500\/20,
+.bg-emerald-500\/25,
+.bg-emerald-500\/\[0\.04\],
+.bg-indigo-500\/10,
+.bg-amber-500\/10,
+.bg-rose-500\/10 {
+  background-color: rgba(189, 238, 255, 0.075) !important;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 5rem) !important;
+}
+
+.hover\:bg-gray-600:hover,
+.hover\:bg-gray-700:hover,
+.hover\:bg-gray-700\/50:hover,
+.hover\:bg-gray-800:hover,
+.hover\:bg-gray-900:hover,
+.hover\:bg-blue-500:hover,
+.hover\:bg-blue-700:hover,
+.hover\:bg-emerald-500\/25:hover,
+.hover\:bg-emerald-700:hover {
+  background-color: #101719 !important;
+}
+
+.bg-blue-500,
+.bg-blue-600,
+.bg-emerald-500,
+.bg-emerald-600 {
+  background-color: var(--mono-blue) !important;
+  color: #020405 !important;
+}
+
+.hover\:bg-blue-600:hover,
+.hover\:bg-emerald-400:hover,
+.hover\:bg-emerald-500:hover {
+  background-color: #e6f8ff !important;
+  color: #020405 !important;
+}
+
+.border-gray-600,
+.border-gray-700,
+.border-gray-800,
+.border-blue-400,
+.border-blue-500,
+.border-emerald-400,
+.border-emerald-500,
+.border-indigo-400,
+.border-amber-400,
+.border-rose-400,
+.border-gray-600\/30,
+.border-gray-700\/70,
+.border-blue-400\/30,
+.border-blue-400\/40,
+.border-blue-500\/20,
+.border-blue-500\/30,
+.border-emerald-300\/20,
+.border-emerald-300\/25,
+.border-emerald-400\/15,
+.border-emerald-400\/20,
+.border-emerald-400\/30,
+.border-emerald-400\/40,
+.border-emerald-500\/30,
+.border-emerald-500\/40,
+.border-indigo-400\/30,
+.border-amber-400\/30,
+.border-rose-400\/30 {
+  border-color: var(--mono-edge) !important;
+}
+
+.hover\:border-gray-500:hover,
+.hover\:border-gray-600:hover,
+.hover\:border-blue-400\/40:hover,
+.hover\:border-emerald-300\/60:hover,
+.hover\:border-emerald-400\/40:hover {
+  border-color: var(--mono-edge-strong) !important;
+  box-shadow:
+    0 0 22px var(--mono-edge-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045) !important;
+}
+
+.text-blue-100,
+.text-blue-100\/75,
+.text-blue-100\/80,
+.text-blue-200,
+.text-blue-300,
+.text-blue-300\/80,
+.text-emerald-100,
+.text-emerald-100\/70,
+.text-emerald-100\/80,
+.text-emerald-200,
+.text-emerald-300,
+.text-emerald-300\/80,
+.text-indigo-100,
+.text-amber-100,
+.text-rose-100 {
+  color: #d8f5ff !important;
+}
+
+.hover\:text-blue-200:hover,
+.hover\:text-white:hover {
+  color: #f8fbff !important;
+}
+
+.focus\:border-blue-400:focus,
+.focus\:border-blue-500:focus {
+  border-color: var(--mono-blue) !important;
+}
+
+.focus\:ring-blue-500\/20:focus {
+  --tw-ring-color: rgba(189, 238, 255, 0.22) !important;
+}
+
+.macro-bar-calories {
+  background-color: #38bdf8 !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.42) !important;
+}
+
+.macro-bar-protein {
+  background-color: #34d399 !important;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.38) !important;
+}
+
+.macro-bar-carbs {
+  background-color: #f59e0b !important;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.38) !important;
+}
+
+.macro-bar-fat {
+  background-color: #d946ef !important;
+  box-shadow: 0 0 10px rgba(217, 70, 239, 0.38) !important;
+}
+
+.monolith-progress-track {
+  background: rgba(2, 4, 5, 0.82) !important;
+  box-shadow:
+    inset 0 0 8px rgba(0, 0, 0, 0.55),
+    0 0 14px rgba(189, 238, 255, 0.055);
+}
+
+.monolith-progress-fill {
+  background: linear-gradient(90deg, #58caff 0%, #bdeeff 48%, #4f8dff 100%) !important;
+  box-shadow:
+    0 0 12px rgba(111, 213, 255, 0.42),
+    0 0 24px rgba(79, 141, 255, 0.22) !important;
+}
+
+.confirmed-accent {
+  border-color: rgba(189, 238, 255, 0.34) !important;
+  background-color: rgba(189, 238, 255, 0.1) !important;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 5rem) !important;
+  color: #d8f5ff !important;
+  box-shadow:
+    0 0 24px rgba(111, 213, 255, 0.14),
+    inset 0 0 0 1px rgba(189, 238, 255, 0.055),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+.confirmed-button {
+  border-color: rgba(189, 238, 255, 0.28) !important;
+  background-color: rgba(189, 238, 255, 0.12) !important;
+  color: #d8f5ff !important;
+  box-shadow:
+    0 0 16px rgba(111, 213, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+.workout-complete-card {
+  border-color: rgba(189, 238, 255, 0.62) !important;
+  background-color: #06090a !important;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 5rem) !important;
+  box-shadow:
+    0 0 24px rgba(111, 213, 255, 0.28),
+    0 0 58px rgba(111, 213, 255, 0.18),
+    0 0 96px rgba(189, 238, 255, 0.12),
+    inset 0 0 0 1px rgba(189, 238, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+}
+
+.workout-complete-row {
+  border-color: rgba(189, 238, 255, 0.54) !important;
+  background-color: #06090a !important;
+  box-shadow:
+    0 0 18px rgba(111, 213, 255, 0.22),
+    0 0 34px rgba(189, 238, 255, 0.11),
+    inset 0 0 0 1px rgba(189, 238, 255, 0.085) !important;
 }
 
 html,

@@ -6,7 +6,7 @@ import AppShell from "../components/AppShell";
 import BarcodeScanner from "../components/BarcodeScanner";
 import NutritionLabelScanner from "../components/NutritionLabelScanner";
 
-type ScanContext = "general" | "inventory-add" | "inventory-use" | "snack" | "ingredient";
+type ScanContext = "general" | "household" | "inventory-add" | "inventory-use" | "snack" | "ingredient";
 type ScanMode = "barcode" | "label";
 
 function getReturnHref(returnTo: string, detectedValue: string, detectedFormat?: string | null) {
@@ -63,6 +63,7 @@ function ScanPageContent() {
   const mode = (searchParams.get("mode") as ScanMode | null) ?? "barcode";
   const returnTo = searchParams.get("returnTo") ?? "/more";
   const scannerKey = `${context}:${mode}:${returnTo}`;
+  const labelContext = context === "household" ? "general" : context;
 
   return (
     <AppShell
@@ -79,7 +80,7 @@ function ScanPageContent() {
         {mode === "label" ? (
           <NutritionLabelScanner
             key={scannerKey}
-            context={context}
+            context={labelContext}
             onDetected={(result) => {
               const nextHref = getLabelReturnHref(returnTo, result);
               router.replace(nextHref);

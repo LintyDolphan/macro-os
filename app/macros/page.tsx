@@ -109,7 +109,7 @@ function ProgressBar({
           {projected > consumed ? ` • planned ${Math.round(projected)}${unit}` : ""}
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-950">
+      <div className="monolith-progress-track h-2 w-full rounded-full bg-gray-950">
         <div className="relative h-2 w-full">
           <div
             className={`absolute left-0 top-0 h-2 rounded-full ${colorClass}`}
@@ -699,7 +699,7 @@ export default function MacrosPage() {
                 consumed={selectedDay === "today" ? todayTotals.calories : 0}
                 projected={projectedTotals.calories}
                 target={current.calories}
-                colorClass="bg-blue-500"
+                colorClass="macro-bar-calories"
               />
               <ProgressBar
                 label={`Protein • ${remainingAfterPlan?.protein ?? 0}g left after plan`}
@@ -707,7 +707,7 @@ export default function MacrosPage() {
                 projected={projectedTotals.protein}
                 target={current.protein}
                 unit="g"
-                colorClass="bg-emerald-500"
+                colorClass="macro-bar-protein"
               />
               <ProgressBar
                 label={`Carbs • ${remainingAfterPlan?.carbs ?? 0}g left after plan`}
@@ -715,7 +715,7 @@ export default function MacrosPage() {
                 projected={projectedTotals.carbs}
                 target={current.carbs}
                 unit="g"
-                colorClass="bg-amber-500"
+                colorClass="macro-bar-carbs"
               />
               <ProgressBar
                 label={`Fat • ${remainingAfterPlan?.fat ?? 0}g left after plan`}
@@ -723,7 +723,7 @@ export default function MacrosPage() {
                 projected={projectedTotals.fat}
                 target={current.fat}
                 unit="g"
-                colorClass="bg-fuchsia-500"
+                colorClass="macro-bar-fat"
               />
             </div>
           ) : (
@@ -810,8 +810,8 @@ export default function MacrosPage() {
                               key={slot}
                               className={`rounded-2xl border px-4 py-3 transition ${
                                 slotMeal?.logged
-                                  ? "border-emerald-400/35 bg-emerald-500/15"
-                                  : "border-transparent bg-gray-800/90"
+                                  ? "confirmed-accent"
+                                  : "border-white/10 bg-gray-900"
                               }`}
                             >
                               <div className="flex items-center justify-between gap-3">
@@ -893,7 +893,7 @@ export default function MacrosPage() {
                                       title={!slotMeal.logged && !canLogPlannerDay(dayKey) ? "Future meals cannot be logged." : undefined}
                                       className={`rounded-xl px-3 py-2 text-xs font-semibold ${
                                         slotMeal.logged
-                                          ? "bg-emerald-500/15 text-emerald-200"
+                                          ? "confirmed-button"
                                           : "bg-gray-900 text-gray-300 hover:bg-gray-950"
                                       } disabled:cursor-not-allowed disabled:opacity-40`}
                                     >
@@ -921,7 +921,7 @@ export default function MacrosPage() {
                                         groceryAddedPlanIds.has(slotMeal.id) ||
                                         plannerBusyKey === `${slotMeal.day_key}:${slotMeal.slot_type}:${slotMeal.slot_key}:grocery`
                                       }
-                                      className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:text-emerald-300/50"
+                                      className="rounded-xl border border-white/10 bg-gray-900 px-3 py-2.5 text-xs font-semibold text-[#d8f5ff] transition hover:border-[rgba(189,238,255,0.28)] hover:bg-[#101719] disabled:cursor-not-allowed disabled:text-gray-500"
                                     >
                                       {groceryAddedPlanIds.has(slotMeal.id)
                                         ? "In Grocery"
@@ -936,7 +936,7 @@ export default function MacrosPage() {
                           );
                         })}
 
-                        <div className="rounded-2xl bg-gray-800/90 px-4 py-3">
+                        <div className="rounded-2xl border border-white/10 bg-gray-900 px-4 py-3">
                           <div className="flex items-center justify-between gap-3">
                             <div>
                               <div className="text-[11px] uppercase tracking-[0.16em] text-gray-500">
@@ -964,7 +964,7 @@ export default function MacrosPage() {
                                     key={snack.id}
                                     className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 transition ${
                                       snack.logged
-                                        ? "border-emerald-400/35 bg-emerald-500/15"
+                                        ? "confirmed-accent"
                                         : "border-transparent bg-gray-900"
                                     }`}
                                   >
@@ -988,7 +988,7 @@ export default function MacrosPage() {
                                         title={!snack.logged && !canLogPlannerDay(dayKey) ? "Future meals cannot be logged." : undefined}
                                         className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${
                                           snack.logged
-                                            ? "bg-emerald-500/15 text-emerald-200"
+                                            ? "confirmed-button"
                                             : "bg-gray-800 text-gray-300"
                                         } disabled:cursor-not-allowed disabled:opacity-40`}
                                       >
@@ -1014,7 +1014,7 @@ export default function MacrosPage() {
                                             groceryAddedPlanIds.has(snack.id) ||
                                             plannerBusyKey === `${snack.day_key}:${snack.slot_type}:${snack.slot_key}:grocery`
                                           }
-                                          className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-200 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:text-emerald-300/50"
+                                          className="rounded-lg border border-white/10 bg-gray-900 px-2.5 py-1.5 text-[11px] font-semibold text-[#d8f5ff] transition hover:border-[rgba(189,238,255,0.28)] hover:bg-[#101719] disabled:cursor-not-allowed disabled:text-gray-500"
                                         >
                                           {groceryAddedPlanIds.has(snack.id)
                                             ? "In Grocery"
